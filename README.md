@@ -6,7 +6,7 @@
 
 [litemd.app](https://litemd.app) · [中文说明](README.zh-CN.md)
 
-[![Download](https://img.shields.io/badge/download-0.1.0-2563EB)](https://litemd.app)
+[![Download](https://img.shields.io/badge/download-0.1.1-2563EB)](https://litemd.app)
 [![Platform](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![Universal](https://img.shields.io/badge/binary-universal-111827)](https://litemd.app)
 [![License](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)
@@ -64,7 +64,14 @@ and an interface in English and Simplified Chinese.
 
 ## Install
 
-Download the latest signed and notarized disk image from
+With [Homebrew](https://brew.sh):
+
+```bash
+brew tap gentpan/tap
+brew install --cask litemd
+```
+
+Or download the signed and notarized disk image from
 [litemd.app](https://litemd.app) or the
 [releases page](https://github.com/gentpan/LiteMD/releases), open it and drag
 LiteMD to Applications.

@@ -61,6 +61,21 @@ scripts/release.sh
 
 3. 把 `build/release` 中的 DMG、ZIP 与 `appcast.json` 上传到 `DOWNLOAD_BASE_URL`。
 
+4. 发一个 GitHub Release，附上 DMG 与 ZIP：
+
+   ```bash
+   gh release create v<版本> --title "LiteMD <版本>" build/release/LiteMD-<版本>.dmg build/release/LiteMD-<版本>.zip
+   ```
+
+5. 更新 Homebrew cask（仓库 [gentpan/homebrew-tap](https://github.com/gentpan/homebrew-tap)
+   的 `Casks/litemd.rb`）：把 `version` 改成新版本，`sha256` 换成
+
+   ```bash
+   shasum -a 256 build/release/LiteMD-<版本>.dmg
+   ```
+
+   的结果，提交推送即可；cask 的下载地址指向 GitHub Release。
+
 ## 自动更新的安全性
 
 - 应用只从 `appcast.json` 指定的地址下载更新包；

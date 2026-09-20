@@ -6,7 +6,7 @@
 
 [litemd.app](https://litemd.app) · [English](README.md)
 
-[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.0-2563EB)](https://litemd.app)
+[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.1-2563EB)](https://litemd.app)
 [![系统](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![架构](https://img.shields.io/badge/%E9%80%9A%E7%94%A8%E4%BA%8C%E8%BF%9B%E5%88%B6-universal-111827)](https://litemd.app)
 [![许可证](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)
@@ -52,7 +52,14 @@ KaTeX 公式、代码高亮（highlight.js）和 Mermaid 图表随应用打包�
 
 ## 安装
 
-到 [litemd.app](https://litemd.app) 或
+用 [Homebrew](https://brew.sh)：
+
+```bash
+brew tap gentpan/tap
+brew install --cask litemd
+```
+
+或者到 [litemd.app](https://litemd.app) 或
 [发布页](https://github.com/gentpan/LiteMD/releases) 下载已签名并公证的磁盘映像，
 打开后把 LiteMD 拖进「应用程序」。
 
