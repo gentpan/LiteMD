@@ -37,6 +37,34 @@ struct ZipTests {
             try ZipArchive(data: Data("not a zip".utf8))
         }
     }
+
+    @Test func totalDecompressionIsBudgeted() throws {
+        var writer = ZipWriter()
+        for index in 0..<3 {
+            writer.add("f\(index).txt", string: String(repeating: "a", count: 1000))
+        }
+        let archive = try ZipArchive(data: writer.finish(), maximumTotalSize: 2500)
+        #expect(try archive.data(for: "f0.txt").count == 1000)
+        #expect(try archive.data(for: "f1.txt").count == 1000)
+        #expect(throws: ConversionError.self) { try archive.data(for: "f2.txt") }
+    }
+
+    @Test func declaredSizeIsNotTrusted() throws {
+        var writer = ZipWriter()
+        writer.add("fake.txt", string: String(repeating: "a", count: 1000))
+        writer.add("real.txt", string: String(repeating: "b", count: 1000))
+        var data = writer.finish()
+        // 把第一条中央目录记录声明的解压大小改成 200 MB。
+        let record = try #require(data.range(of: Data([0x50, 0x4B, 0x01, 0x02]))).lowerBound
+        let declared = UInt32(200 * 1024 * 1024)
+        for byte in 0..<4 {
+            data[record + 24 + byte] = UInt8((declared >> (8 * UInt32(byte))) & 0xFF)
+        }
+        let archive = try ZipArchive(data: data, maximumTotalSize: Int(declared) + 500)
+        #expect(throws: ConversionError.self) { try archive.data(for: "fake.txt") }
+        // 失败的条目退回额度。
+        #expect(try archive.data(for: "real.txt").count == 1000)
+    }
 }
 
 @Suite("DOCX")
@@ -151,6 +179,34 @@ struct OfficeImporterTests {
         #expect(XlsxImporter.columnIndex("AB12") == 27)
     }
 
+    @Test func spreadsheetCellReferencesAndGridAreBounded() throws {
+        #expect(XlsxImporter.columnIndex("XFD1") == 16_383)
+        #expect(XlsxImporter.columnIndex("XFE1") == nil)
+        #expect(XlsxImporter.columnIndex("ZZZZZZZZZZZZZZ1") == nil)
+        #expect(XlsxImporter.columnIndex("12") == nil)
+
+        let sheet = try XMLTree.parse(Data("""
+        <worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="ZZZZZZZZZZZZZZ1"><v>bad</v></c></row><row r="1048576"><c r="XFD1048576"><v>2</v></c></row></sheetData></worksheet>
+        """.utf8))
+        let table = XlsxImporter.rows(in: sheet, sharedStrings: [])
+        #expect(table.isTruncated)
+        #expect(table.rows.first?.first == "1")
+        #expect(table.rows.count * (table.rows.first?.count ?? 0) <= XlsxImporter.importedCellLimit)
+        #expect(!table.rows.joined().contains("bad"))
+    }
+
+    @Test func spreadsheetTextSkipsPhoneticRuns() throws {
+        let strings = try XMLTree.parse(Data("""
+        <sst><si><t>東京</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si><si><r><t>大</t></r><r><t>阪</t></r><rPh sb="0" eb="2"><t>オオサカ</t></rPh></si></sst>
+        """.utf8))
+        #expect(strings.children("si").map(XlsxImporter.richText) == ["東京", "大阪"])
+
+        let sheet = try XMLTree.parse(Data("""
+        <worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>京都</t><rPh><t>キョウト</t></rPh></is></c></row></sheetData></worksheet>
+        """.utf8))
+        #expect(XlsxImporter.rows(in: sheet, sharedStrings: []).rows == [["京都"]])
+    }
+
     @Test func importsSlidesWithTitlesBulletsAndNotes() throws {
         var writer = ZipWriter()
         writer.add("ppt/presentation.xml", string: """
@@ -220,6 +276,34 @@ struct WebAndTextConversionTests {
         #expect(result.markdown.contains("Intro **text**."))
         #expect(result.markdown.contains("![Logo](assets/book-1.png)"))
         #expect(result.assets.count == 1)
+    }
+
+    @Test func htmlAttributeValuesMayContainGreaterThan() throws {
+        let html = "<p><img alt=\"a > b\" src=\"p.png\"> after</p>"
+        let result = try DocumentImporter().convert(Data(html.utf8), fileName: "page.html", options: ImportOptions())
+        #expect(result.markdown == "![a > b](p.png) after\n")
+    }
+
+    @Test func decodesGB18030InsteadOfGuessingUTF16() throws {
+        let gb18030 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        let text = try #require("你好，世界".data(using: gb18030))
+        #expect(try DocumentImporter().convert(text, fileName: "a.txt", options: ImportOptions()).markdown == "你好，世界")
+        let csv = try #require("名称,数量\n苹果,3\n".data(using: gb18030))
+        #expect(try DocumentImporter().convert(csv, fileName: "a.csv", options: ImportOptions()).markdown.contains("| 苹果 | 3 |"))
+
+        #expect(DocumentImporter.decode(try #require("hello, 世界".data(using: .utf16))) == "hello, 世界")
+        #expect(DocumentImporter.decode(try #require("plain ascii".data(using: .utf16LittleEndian))) == "plain ascii")
+        #expect(DocumentImporter.decode(try #require("plain ascii".data(using: .utf16BigEndian))) == "plain ascii")
+        #expect(DocumentImporter.decode(Data([0xEF, 0xBB, 0xBF]) + Data("abc".utf8)) == "abc")
+    }
+
+    @Test func escapesParenthesisListsAndTildeFences() throws {
+        #expect(MarkdownComposer.escapeLineStart("1) item") == "1\\) item")
+        #expect(MarkdownComposer.escapeLineStart("12. item") == "12\\. item")
+        #expect(MarkdownComposer.escapeLineStart("~~~ code") == "\\~~~ code")
+        let html = "<p>~~~</p><p>1) after</p><p>tail</p>"
+        let result = try DocumentImporter().convert(Data(html.utf8), fileName: "page.html", options: ImportOptions())
+        #expect(result.markdown == "\\~~~\n\n1\\) after\n\ntail\n")
     }
 
     @Test func csvHandlesQuotesAndDelimiters() throws {

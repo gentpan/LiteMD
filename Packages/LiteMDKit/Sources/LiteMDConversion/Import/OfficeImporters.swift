@@ -135,10 +135,13 @@ public struct XlsxImporter: Sendable {
             guard let id = sheet["r:id"], let relationship = relationships.byID[id] else { continue }
             let sheetPath = ZipArchive.resolve(relationship.target, relativeTo: workbookPath)
             guard let sheetData = try? archive.data(for: sheetPath), let root = try? XMLTree.parse(sheetData) else { continue }
-            let rows = Self.rows(in: root, sharedStrings: sharedStrings)
-            guard !rows.isEmpty else { continue }
+            let table = Self.rows(in: root, sharedStrings: sharedStrings)
+            guard !table.rows.isEmpty else { continue }
             blocks.append("## " + MarkdownComposer.escapeInline(sheet["name"] ?? "Sheet"))
-            blocks.append(MarkdownComposer.table(rows.map { $0.map(MarkdownComposer.escapeInline) }))
+            blocks.append(MarkdownComposer.table(table.rows.map { $0.map(MarkdownComposer.escapeInline) }))
+            if table.isTruncated {
+                blocks.append("*Only the first \(table.rows.count) rows and \(table.rows[0].count) columns were imported.*")
+            }
         }
 
         guard !blocks.isEmpty else { throw ConversionError.empty }
@@ -147,22 +150,39 @@ public struct XlsxImporter: Sendable {
 
     private static func loadSharedStrings(_ archive: ZipArchive) -> [String] {
         guard let data = try? archive.data(for: "xl/sharedStrings.xml"), let root = try? XMLTree.parse(data) else { return [] }
-        return root.children("si").map { item in
-            item.descendants("t").map(\.textContent).joined()
-        }
+        return root.children("si").map(richText)
     }
 
-    static func rows(in sheet: XElement, sharedStrings: [String]) -> [[String]] {
+    /// `<si>` / `<is>` 的文字：直接的 `<t>` 与各个 `<r><t>`。`<rPh>` 是注音（例如日文假名），不算正文。
+    static func richText(_ element: XElement) -> String {
+        var text = element.child("t")?.textContent ?? ""
+        for run in element.children("r") {
+            text += run.child("t")?.textContent ?? ""
+        }
+        return text
+    }
+
+    /// Excel 的上限：XFD 列、1 048 576 行。
+    static let maximumColumnIndex = 16_383
+    static let maximumRowIndex = 1_048_575
+    /// Markdown 表格要逐格写出，超出这些范围的部分不导入。
+    static let importedColumnLimit = 512
+    static let importedCellLimit = 500_000
+
+    static func rows(in sheet: XElement, sharedStrings: [String]) -> (rows: [[String]], isTruncated: Bool) {
         var grid: [Int: [Int: String]] = [:]
         for (rowOffset, row) in (sheet.firstDescendant("sheetData")?.children("row") ?? []).enumerated() {
-            let rowIndex = (Int(row["r"] ?? "") ?? (rowOffset + 1)) - 1
+            let declaredRow = Int(row["r"] ?? "").map { $0 - 1 }
+            let rowIndex = declaredRow.flatMap { (0...maximumRowIndex).contains($0) ? $0 : nil } ?? rowOffset
             for (cellOffset, cell) in row.children("c").enumerated() {
-                let column = cell["r"].map(columnIndex) ?? cellOffset
+                // 引用写错（列号超出 XFD、没有字母）的单元格跳过，不猜位置。
+                let column: Int? = if let reference = cell["r"] { columnIndex(reference) } else { cellOffset }
+                guard let column, column <= maximumColumnIndex else { continue }
                 let raw = cell.child("v")?.textContent ?? ""
                 let value: String
                 switch cell["t"] {
                 case "s": value = Int(raw).flatMap { sharedStrings.indices.contains($0) ? sharedStrings[$0] : nil } ?? ""
-                case "inlineStr": value = cell.descendants("t").map(\.textContent).joined()
+                case "inlineStr": value = cell.child("is").map(richText) ?? ""
                 case "b": value = raw == "1" ? "TRUE" : "FALSE"
                 default: value = raw
                 }
@@ -171,21 +191,29 @@ public struct XlsxImporter: Sendable {
                 }
             }
         }
-        guard let lastRow = grid.keys.max(), let lastColumn = grid.values.flatMap(\.keys).max() else { return [] }
-        let firstRow = grid.keys.min() ?? 0
-        return (firstRow...lastRow).map { row in
-            (0...lastColumn).map { grid[row]?[$0] ?? "" }
+        guard let firstRow = grid.keys.min(), let lastRow = grid.keys.max(),
+              let lastColumn = grid.values.flatMap(\.keys).max() else { return ([], false) }
+
+        // 表格按行列铺满：A1 与 XFD1048576 各有一个值，也会得到 170 亿个格子，所以要限制范围。
+        let columnCount = min(lastColumn + 1, importedColumnLimit)
+        let rowCount = min(lastRow - firstRow + 1, max(1, importedCellLimit / columnCount))
+        let isTruncated = columnCount <= lastColumn || firstRow + rowCount <= lastRow
+        let rows = (firstRow..<(firstRow + rowCount)).map { row in
+            (0..<columnCount).map { grid[row]?[$0] ?? "" }
         }
+        return (rows, isTruncated)
     }
 
-    /// `AB12` → 27
-    static func columnIndex(_ reference: String) -> Int {
+    /// `AB12` → 27。没有列字母或超出 XFD 时返回 nil。
+    static func columnIndex(_ reference: String) -> Int? {
         var index = 0
         for scalar in reference.unicodeScalars {
             guard (65...90).contains(scalar.value) || (97...122).contains(scalar.value) else { break }
             index = index * 26 + Int((scalar.value & 0xDF) - 64)
+            // 提前截断，超长的字母串不会让乘法溢出。
+            guard index <= maximumColumnIndex + 1 else { return nil }
         }
-        return max(0, index - 1)
+        return index > 0 ? index - 1 : nil
     }
 }
 

@@ -1,4 +1,5 @@
 import Foundation
+import LiteMDMarkdown
 
 /// 内置导入格式。PDF、图片（OCR）、RTF / DOC / ODT 依赖系统框架，由平台层实现。
 public enum ImportFormat: String, CaseIterable, Sendable {
@@ -68,13 +69,41 @@ public struct DocumentImporter: Sendable {
         }
     }
 
-    /// UTF-8 优先，失败时依次尝试 UTF-16 与 GB 18030（常见中文编码）。
+    /// 先看 BOM 与明显的 UTF-16，再试 UTF-8，最后 GB 18030（常见中文编码）。
+    ///
+    /// UTF-16 几乎能“解码”任何偶数长度的字节，只凭能否解码就先试它，GBK 文本会变成一串韩文；
+    /// 反过来，西文 UTF-16 里的零字节又是合法的 UTF-8，所以 UTF-16 的判断要放在 UTF-8 之前。
     static func decode(_ data: Data) -> String {
+        let bytes = [UInt8](data)
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) {
+            return String(decoding: bytes.dropFirst(3), as: UTF8.self)
+        }
+        if bytes.starts(with: [0xFF, 0xFE]) || bytes.starts(with: [0xFE, 0xFF]) {
+            if let text = String(data: data, encoding: .utf16) { return text }
+        }
+        if let littleEndian = looksLikeUTF16(bytes) {
+            if let text = String(data: data, encoding: littleEndian ? .utf16LittleEndian : .utf16BigEndian) { return text }
+        }
         if let text = String(data: data, encoding: .utf8) { return text }
-        if let text = String(data: data, encoding: .utf16) { return text }
         let gb18030 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
         if let text = String(data: data, encoding: gb18030) { return text }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    /// 没有 BOM 的 UTF-16：西文字符的高位字节是 0，零字节集中在奇数位（小端）或偶数位（大端）。
+    /// 返回 nil 表示不像 UTF-16。
+    static func looksLikeUTF16(_ bytes: [UInt8]) -> Bool? {
+        let sample = bytes.prefix(4096)
+        guard sample.count >= 2, sample.count % 2 == 0 else { return nil }
+        var zerosAtEven = 0
+        var zerosAtOdd = 0
+        for (offset, byte) in sample.enumerated() where byte == 0 {
+            if offset % 2 == 0 { zerosAtEven += 1 } else { zerosAtOdd += 1 }
+        }
+        let pairs = sample.count / 2
+        if zerosAtOdd * 10 >= pairs * 3, zerosAtEven * 20 <= pairs { return true }
+        if zerosAtEven * 10 >= pairs * 3, zerosAtOdd * 20 <= pairs { return false }
+        return nil
     }
 }
 
@@ -94,7 +123,7 @@ public enum HTMLTagSoupParser {
 
         func flushText() {
             guard !text.isEmpty else { return }
-            stack.last?.append(.text(decodeEntities(text)))
+            stack.last?.append(.text(HTMLEscaping.decodeEntities(text)))
             text = ""
         }
 
@@ -123,25 +152,18 @@ public enum HTMLTagSoupParser {
                 continue
             }
 
-            guard let tagEnd = find(scalars, ">", from: index) else {
+            // 与 Preview 净化器同一个标签解析：带引号的属性值里的 `>` 不会截断标签。
+            guard let tag = HTMLTag.parse(scalars, at: index) else {
                 text.unicodeScalars.append(scalar)
                 index += 1
                 continue
             }
-            let inner = String(String.UnicodeScalarView(scalars[(index + 1)..<tagEnd]))
-            let isClosing = inner.hasPrefix("/")
-            let content = isClosing ? String(inner.dropFirst()) : inner
-            let name = content.prefix { !$0.isWhitespace && $0 != "/" && $0 != ">" }.lowercased()
-            guard let first = name.unicodeScalars.first, first.properties.isAlphabetic else {
-                text.unicodeScalars.append(scalar)
-                index += 1
-                continue
-            }
+            let name = tag.name
 
             flushText()
-            index = tagEnd + 1
+            index = tag.end
 
-            if isClosing {
+            if tag.isClosing {
                 close(name)
                 continue
             }
@@ -164,7 +186,9 @@ public enum HTMLTagSoupParser {
                 stack.removeSubrange(open...)
             }
 
-            let element = XElement(name: name, attributes: parseAttributes(String(content.dropFirst(name.count))))
+            // 重复的属性以第一个为准，与浏览器一致。
+            let attributes = Dictionary(tag.attributes.map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+            let element = XElement(name: name, attributes: attributes)
             stack.last?.append(.element(element))
 
             if rawTextElements.contains(name) {
@@ -174,77 +198,12 @@ public enum HTMLTagSoupParser {
                 index = find(scalars, ">", from: end).map { $0 + 1 } ?? scalars.count
                 continue
             }
-            if !voidElements.contains(name), !content.hasSuffix("/") {
+            if !voidElements.contains(name), !tag.isSelfClosing {
                 stack.append(element)
             }
         }
         flushText()
         return root
-    }
-
-    static func parseAttributes(_ source: String) -> [String: String] {
-        var attributes: [String: String] = [:]
-        let scalars = Array(source.unicodeScalars)
-        var index = 0
-        while index < scalars.count {
-            while index < scalars.count, scalars[index].properties.isWhitespace || scalars[index] == "/" { index += 1 }
-            var name = ""
-            while index < scalars.count, !scalars[index].properties.isWhitespace, scalars[index] != "=", scalars[index] != "/" {
-                name.unicodeScalars.append(scalars[index])
-                index += 1
-            }
-            guard !name.isEmpty else { break }
-            while index < scalars.count, scalars[index].properties.isWhitespace { index += 1 }
-            var value = ""
-            if index < scalars.count, scalars[index] == "=" {
-                index += 1
-                while index < scalars.count, scalars[index].properties.isWhitespace { index += 1 }
-                if index < scalars.count, scalars[index] == "\"" || scalars[index] == "'" {
-                    let quote = scalars[index]
-                    index += 1
-                    while index < scalars.count, scalars[index] != quote {
-                        value.unicodeScalars.append(scalars[index])
-                        index += 1
-                    }
-                    index += 1
-                } else {
-                    while index < scalars.count, !scalars[index].properties.isWhitespace {
-                        value.unicodeScalars.append(scalars[index])
-                        index += 1
-                    }
-                }
-            }
-            attributes[name.lowercased()] = decodeEntities(value)
-        }
-        return attributes
-    }
-
-    static func decodeEntities(_ text: String) -> String {
-        guard text.contains("&") else { return text }
-        let named = ["amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": "\u{00A0}", "copy": "©", "reg": "®", "mdash": "—", "ndash": "–", "hellip": "…", "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”", "middot": "·", "times": "×"]
-        var result = ""
-        var index = text.startIndex
-        while index < text.endIndex {
-            if text[index] == "&", let semicolon = text[index...].firstIndex(of: ";"), text.distance(from: index, to: semicolon) <= 10 {
-                let entity = String(text[text.index(after: index)..<semicolon])
-                var replacement: String?
-                if let value = named[entity] {
-                    replacement = value
-                } else if entity.hasPrefix("#x") || entity.hasPrefix("#X"), let code = UInt32(entity.dropFirst(2), radix: 16), let scalar = Unicode.Scalar(code) {
-                    replacement = String(scalar)
-                } else if entity.hasPrefix("#"), let code = UInt32(entity.dropFirst()), let scalar = Unicode.Scalar(code) {
-                    replacement = String(scalar)
-                }
-                if let replacement {
-                    result += replacement
-                    index = text.index(after: semicolon)
-                    continue
-                }
-            }
-            result.append(text[index])
-            index = text.index(after: index)
-        }
-        return result
     }
 
     private static func starts(_ scalars: [Unicode.Scalar], _ index: Int, _ literal: String) -> Bool {
