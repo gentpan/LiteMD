@@ -9,7 +9,6 @@ extension LiteMDError {
         case .file, .encoding: return String(localized: "Unable to open \(name).")
         case .save: return String(localized: "Unable to save \(name).")
         case .conflict: return String(localized: "\(name) was changed outside LiteMD.")
-        case .parse: return String(localized: "Unable to read \(name).")
         case .workspace: return String(localized: "The folder operation could not be completed.")
         case .recovery: return String(localized: "Unable to recover \(name).")
         case .asset: return String(localized: "Unable to insert the image.")

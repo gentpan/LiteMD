@@ -20,8 +20,7 @@ struct ThemeTests {
 
     @Test func twentyThemesSplitEvenly() {
         #expect(ColorTheme.allCases.count == 20)
-        #expect(ColorTheme.lightThemes.count == 10)
-        #expect(ColorTheme.darkThemes.count == 10)
+        #expect(ColorTheme.allCases.filter(\.isDark).count == 10)
         #expect(!ColorTheme.defaultLight.isDark)
         #expect(ColorTheme.defaultDark.isDark)
     }

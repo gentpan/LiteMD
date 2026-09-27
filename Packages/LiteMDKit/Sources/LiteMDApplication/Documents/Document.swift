@@ -24,7 +24,7 @@ public final class Document: Identifiable {
     public internal(set) var savedRevision: Int
     public internal(set) var knownDiskRevision: DiskRevision?
 
-    public internal(set) var lifecycle: DocumentLifecycle = .loading
+    public internal(set) var lifecycle: DocumentLifecycle = .ready
     public internal(set) var saveActivity: SaveActivity = .idle
     public internal(set) var conflict: ConflictState = .none
     public internal(set) var parseResult: ParseResult?

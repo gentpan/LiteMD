@@ -56,9 +56,9 @@ public final class AssetService: Sendable {
         date: Date = Date()
     ) async throws(LiteMDError) -> AssetImportResult {
         let directory = location.directory(forDocumentAt: documentURL)
-        try await ensureDirectory(directory, within: documentURL.deletingLastPathComponent())
+        try await ensureDirectory(directory)
         let fileSystem = self.fileSystem
-        let url = try await Self.createUnique(in: directory, baseName: Self.timestampName(date), extension: fileExtension.lowercased()) { url throws(LiteMDError) in
+        let url = try await UniqueItemNaming.asset.create(in: directory, baseName: Self.timestampName(date), extension: fileExtension.lowercased()) { url throws(LiteMDError) in
             try await fileSystem.createFile(at: url, contents: data)
         }
         return AssetImportResult(fileURL: url, markdownPath: Self.relativePath(from: documentURL.deletingLastPathComponent(), to: url))
@@ -72,11 +72,11 @@ public final class AssetService: Sendable {
         location: AssetLocation
     ) async throws(LiteMDError) -> AssetImportResult {
         let directory = location.directory(forDocumentAt: documentURL)
-        try await ensureDirectory(directory, within: documentURL.deletingLastPathComponent())
+        try await ensureDirectory(directory)
         let baseName = Self.sanitizedBaseName((fileName as NSString).deletingPathExtension)
         let fileExtension = (fileName as NSString).pathExtension.lowercased()
         let fileSystem = self.fileSystem
-        let url = try await Self.createUnique(in: directory, baseName: baseName, extension: fileExtension) { url throws(LiteMDError) in
+        let url = try await UniqueItemNaming.asset.create(in: directory, baseName: baseName, extension: fileExtension) { url throws(LiteMDError) in
             try await fileSystem.createFile(at: url, contents: data)
         }
         return AssetImportResult(fileURL: url, markdownPath: Self.relativePath(from: documentURL.deletingLastPathComponent(), to: url))
@@ -100,16 +100,16 @@ public final class AssetService: Sendable {
         }
 
         let directory = location.directory(forDocumentAt: documentURL)
-        try await ensureDirectory(directory, within: documentDirectory)
+        try await ensureDirectory(directory)
         let baseName = Self.sanitizedBaseName(sourceURL.deletingPathExtension().lastPathComponent)
         let fileSystem = self.fileSystem
-        let url = try await Self.createUnique(in: directory, baseName: baseName, extension: sourceURL.pathExtension.lowercased()) { destination throws(LiteMDError) in
+        let url = try await UniqueItemNaming.asset.create(in: directory, baseName: baseName, extension: sourceURL.pathExtension.lowercased()) { destination throws(LiteMDError) in
             try await fileSystem.copyItem(from: sourceURL, to: destination)
         }
         return AssetImportResult(fileURL: url, markdownPath: Self.relativePath(from: documentDirectory, to: url))
     }
 
-    private func ensureDirectory(_ directory: URL, within base: URL) async throws(LiteMDError) {
+    private func ensureDirectory(_ directory: URL) async throws(LiteMDError) {
         if await fileSystem.isDirectory(at: directory) { return }
         var missing: [URL] = []
         var current = directory.standardizedFileURL
@@ -158,26 +158,6 @@ public final class AssetService: Sendable {
         }
         while result.hasSuffix("-") { result.removeLast() }
         return result.isEmpty ? "image" : result
-    }
-
-    /// 已存在时依次尝试 `name-2`、`name-3`…（spec §132）。
-    static func createUnique(
-        in directory: URL,
-        baseName: String,
-        extension pathExtension: String,
-        create: (URL) async throws(LiteMDError) -> Void
-    ) async throws(LiteMDError) -> URL {
-        for attempt in 1...10_000 {
-            let name = attempt == 1 ? baseName : "\(baseName)-\(attempt)"
-            let url = directory.appendingPathComponent(pathExtension.isEmpty ? name : "\(name).\(pathExtension)")
-            do throws(LiteMDError) {
-                try await create(url)
-                return url.standardizedFileURL
-            } catch where error.reason == .alreadyExists {
-                continue
-            }
-        }
-        throw LiteMDError(kind: .asset, reason: .alreadyExists, fileName: baseName)
     }
 
     /// 从目录到文件的相对路径，使用 `/` 分隔。

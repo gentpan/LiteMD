@@ -88,7 +88,6 @@ public final class DocumentService {
         if !text.isEmpty {
             document.replaceAllText(text)
         }
-        document.lifecycle = .ready
         register(document)
         return document
     }
@@ -115,18 +114,15 @@ public final class DocumentService {
         let reference = FileReference(url: url, encoding: loaded.encoding, lineEnding: loaded.lineEnding, identity: loaded.identity)
         let document = Document(fileReference: reference, text: loaded.text)
         document.knownDiskRevision = loaded.diskRevision
-        document.lifecycle = .ready
         register(document)
         onFileOpened?(url)
         return document
     }
 
     private func existingDocument(for url: URL) async -> Document? {
-        if let match = documents.first(where: { $0.fileReference?.url.standardizedFileURL == url }) {
-            return match
-        }
-        let identity = await fileSystem.identity(at: url)
-        return existingDocument(for: url, identity: identity)
+        // 路径相同时不必查询 inode。
+        if let match = existingDocument(for: url, identity: nil) { return match }
+        return existingDocument(for: url, identity: await fileSystem.identity(at: url))
     }
 
     private func existingDocument(for url: URL, identity: FileIdentity?) -> Document? {
@@ -275,7 +271,6 @@ public final class DocumentService {
         try await saveCoordinator.save(document, policy: .overwriteExternalChanges)
     }
 
-    /// 冲突：用于对比的磁盘内容。
     // MARK: Version history
 
     /// 文档的历史版本与 iCloud 冲突版本（新到旧）。未保存过的文档没有历史。
@@ -304,6 +299,7 @@ public final class DocumentService {
         try await fileSystem.readText(at: snapshot.fileURL).text
     }
 
+    /// 冲突：用于对比的磁盘内容。
     public func diskText(for document: Document) async throws(LiteMDError) -> String {
         guard let reference = document.fileReference else {
             throw LiteMDError(kind: .file, reason: .notFound, fileName: document.displayName)
@@ -326,13 +322,7 @@ public final class DocumentService {
         }
         guard document.fileReference?.url == reference.url else { return }
 
-        if loaded.text != document.buffer.snapshot() {
-            if let editor = document.textEditor {
-                editor.replaceEntireText(with: loaded.text)
-            } else {
-                document.replaceAllText(loaded.text)
-            }
-        }
+        replaceText(of: document, with: loaded.text)
         var updated = reference
         updated.encoding = loaded.encoding
         updated.lineEnding = loaded.lineEnding
@@ -344,6 +334,16 @@ public final class DocumentService {
         document.saveActivity = .idle
         recovery.documentClosed(document)
         parseCoordinator.schedule(document, immediately: true)
+    }
+
+    /// 整体替换正文：有编辑器时走编辑器（可撤销、选区合理），否则直接替换 Buffer。
+    private func replaceText(of document: Document, with text: String) {
+        guard text != document.buffer.snapshot() else { return }
+        if let editor = document.textEditor {
+            editor.replaceEntireText(with: text)
+        } else {
+            document.replaceAllText(text)
+        }
     }
 
     // MARK: External changes
@@ -497,14 +497,16 @@ public final class DocumentService {
                 if let url = entry.originalURL, await fileSystem.itemExists(at: url) {
                     document = try await openDocument(at: url)
                     if content != document.buffer.snapshot() {
-                        if let editor = document.textEditor {
-                            editor.replaceEntireText(with: content)
-                        } else {
-                            document.replaceAllText(content)
-                        }
-                        // 使用崩溃前已知的磁盘版本：若之后磁盘被其他程序修改，保存时会进入冲突。
+                        replaceText(of: document, with: content)
+                        // 还原崩溃前对磁盘文件的认知：若之后磁盘被其他程序修改，保存时会进入冲突；
+                        // 编码与换行符沿用编辑时的设置，不被外部改写后的文件带偏。
                         if let known = entry.knownDiskRevision {
                             document.knownDiskRevision = known
+                        }
+                        if var reference = document.fileReference {
+                            reference.encoding = entry.encoding
+                            reference.lineEnding = entry.lineEnding
+                            document.setFileReference(reference)
                         }
                     }
                 } else {

@@ -35,7 +35,6 @@ final class SaveCoordinator {
     private var lastSnapshotDates: [String: Date] = [:]
 
     var didSave: ((Document) -> Void)?
-    var didDetectConflict: ((Document) -> Void)?
 
     /// - Parameter snapshotInterval: 同一文件两次历史版本之间的最短间隔。本次运行中第一次覆盖、
     ///   以及用户选择覆盖外部修改时总会保存。
@@ -120,7 +119,6 @@ final class SaveCoordinator {
             if error.kind == .conflict {
                 document.conflict = error.reason == .externalDeletion ? .externalDeleted : .externalModified
                 document.saveActivity = .idle
-                didDetectConflict?(document)
             } else {
                 document.saveActivity = .failed(error)
             }

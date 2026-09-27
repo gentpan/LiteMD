@@ -136,7 +136,6 @@ struct RecoveryStoreTests {
             documentID: id,
             originalURL: URL(fileURLWithPath: "/tmp/a.md"),
             displayName: "a.md",
-            revision: 3,
             knownDiskRevision: DiskRevision(modifiedAtNanoseconds: 1_700_000_000_123_456_789, fileSize: 4, contentHash: "h"),
             encoding: .utf8,
             lineEnding: .lf,

@@ -134,14 +134,13 @@ final class RecoveryCoordinator {
             documentID: document.id,
             originalURL: document.fileReference?.url,
             displayName: document.displayName,
-            revision: document.revision,
             knownDiskRevision: document.knownDiskRevision,
             encoding: document.fileReference?.encoding ?? .utf8,
             lineEnding: document.fileReference?.lineEnding ?? .lf,
             timestamp: Date()
         )
         let content = document.buffer.snapshot()
-        document.recoveryRevision = entry.revision
+        document.recoveryRevision = document.revision
         let store = self.store
         enqueue(document.id) {
             try? await store.store(entry, content: content)

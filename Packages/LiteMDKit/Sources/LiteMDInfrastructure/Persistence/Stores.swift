@@ -112,7 +112,7 @@ public actor FileVersionHistoryStore: VersionHistoryStoring {
     }
 
     private func folder(for url: URL) -> URL {
-        let digest = SHA256.hash(data: Data(url.standardizedFileURL.path.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: Data(url.standardizedFileURL.path.utf8)).prefix(12).hexString
         return directory.appendingPathComponent(digest, isDirectory: true)
     }
 

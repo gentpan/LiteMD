@@ -298,7 +298,7 @@ public final class LocalFileSystem: FileSystem {
     }
 
     static func sha256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        SHA256.hash(data: data).hexString
     }
 
     // MARK: Metadata
@@ -338,7 +338,7 @@ public final class LocalFileSystem: FileSystem {
     @concurrent
     public func contentsOfDirectory(at url: URL, rules: WorkspaceIgnoreRules) async throws(LiteMDError) -> [WorkspaceEntry] {
         let keys: [URLResourceKey] = [
-            .isDirectoryKey, .isSymbolicLinkKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey,
+            .isDirectoryKey, .isSymbolicLinkKey, .isPackageKey,
             .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey,
             .ubiquitousItemIsUploadingKey,
         ]
@@ -367,8 +367,6 @@ public final class LocalFileSystem: FileSystem {
             entries.append(WorkspaceEntry(
                 url: child.standardizedFileURL,
                 kind: isDirectory ? .directory : .file,
-                size: values?.fileSize.map(Int64.init),
-                modifiedAt: values?.contentModificationDate,
                 cloudStatus: Self.cloudStatus(values)
             ))
         }

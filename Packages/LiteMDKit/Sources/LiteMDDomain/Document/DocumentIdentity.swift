@@ -41,10 +41,6 @@ public struct DiskRevision: Equatable, Codable, Sendable {
         self.contentHash = contentHash
     }
 
-    public var modifiedAt: Date {
-        Date(timeIntervalSince1970: TimeInterval(modifiedAtNanoseconds) / 1_000_000_000)
-    }
-
     /// 快速判断：修改时间与大小都一致。
     public func matchesMetadata(_ other: DiskRevision) -> Bool {
         modifiedAtNanoseconds == other.modifiedAtNanoseconds && fileSize == other.fileSize

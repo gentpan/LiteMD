@@ -13,8 +13,6 @@ public enum CloudStatus: Hashable, Sendable {
     /// 本地有改动尚未上传完成。
     case uploading
 
-    public var isInCloud: Bool { self != .local }
-
     /// 需要先下载才能打开。
     public var needsDownload: Bool {
         switch self {

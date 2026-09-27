@@ -8,15 +8,11 @@ public struct WorkspaceEntry: Identifiable, Hashable, Sendable {
 
     public var url: URL
     public var kind: Kind
-    public var size: Int64?
-    public var modifiedAt: Date?
     public var cloudStatus: CloudStatus
 
-    public init(url: URL, kind: Kind, size: Int64? = nil, modifiedAt: Date? = nil, cloudStatus: CloudStatus = .local) {
+    public init(url: URL, kind: Kind, cloudStatus: CloudStatus = .local) {
         self.url = url
         self.kind = kind
-        self.size = size
-        self.modifiedAt = modifiedAt
         self.cloudStatus = cloudStatus
     }
 

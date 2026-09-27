@@ -1,11 +1,8 @@
 import Foundation
 
 public enum DocumentLifecycle: Equatable, Sendable {
-    case loading
     case ready
-    case closing
     case closed
-    case error(LiteMDError)
 }
 
 /// 保存流程的进行状态。Dirty 与否由 revision 推导，不在这里维护。
@@ -31,15 +28,8 @@ public enum ConflictState: Equatable, Sendable {
     case externalModified
     /// 文件已被外部删除。
     case externalDeleted
-    /// 文件被移动到新位置（通常会被自动跟随，不需要用户处理）。
-    case externalMoved(URL)
 
-    public var isConflict: Bool {
-        switch self {
-        case .none, .externalMoved: false
-        case .externalModified, .externalDeleted: true
-        }
-    }
+    public var isConflict: Bool { self != .none }
 }
 
 public enum EditorMode: String, Codable, Sendable, CaseIterable {
@@ -67,7 +57,6 @@ public struct Selection: Equatable, Hashable, Codable, Sendable {
         self.init(anchor: range.location, head: range.location + range.length)
     }
 
-    public var isCursor: Bool { anchor == head }
     public var lowerBound: Int { min(anchor, head) }
     public var upperBound: Int { max(anchor, head) }
     public var range: NSRange { NSRange(location: lowerBound, length: upperBound - lowerBound) }

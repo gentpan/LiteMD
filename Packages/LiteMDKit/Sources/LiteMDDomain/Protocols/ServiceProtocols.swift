@@ -73,7 +73,7 @@ public struct RecoveryEntry: Codable, Identifiable, Sendable, Equatable {
     public var documentID: DocumentID
     public var originalURL: URL?
     public var displayName: String
-    public var revision: Int
+    /// 崩溃前对原文件的认知（磁盘版本、编码、换行符），恢复时一并还原。
     public var knownDiskRevision: DiskRevision?
     public var encoding: TextEncoding
     public var lineEnding: LineEnding
@@ -83,7 +83,6 @@ public struct RecoveryEntry: Codable, Identifiable, Sendable, Equatable {
         documentID: DocumentID,
         originalURL: URL?,
         displayName: String,
-        revision: Int,
         knownDiskRevision: DiskRevision?,
         encoding: TextEncoding,
         lineEnding: LineEnding,
@@ -92,7 +91,6 @@ public struct RecoveryEntry: Codable, Identifiable, Sendable, Equatable {
         self.documentID = documentID
         self.originalURL = originalURL
         self.displayName = displayName
-        self.revision = revision
         self.knownDiskRevision = knownDiskRevision
         self.encoding = encoding
         self.lineEnding = lineEnding

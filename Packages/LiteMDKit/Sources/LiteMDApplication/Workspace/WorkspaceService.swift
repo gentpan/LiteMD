@@ -35,8 +35,6 @@ public final class WorkspaceNode: Identifiable {
 public final class WorkspaceService {
     public private(set) var root: WorkspaceNode?
     public var rules = WorkspaceIgnoreRules()
-    /// 为 true 时文件树只显示 Markdown / 文本文件与图片。
-    public var showsOnlySupportedFiles = true
 
     @ObservationIgnored private let fileSystem: any FileSystem
     @ObservationIgnored private var markdownFileCache: [URL]?
@@ -90,8 +88,9 @@ public final class WorkspaceService {
         defer { node.isLoading = false }
 
         let entries = try await fileSystem.contentsOfDirectory(at: node.url, rules: rules)
+        // 文件树只显示 Markdown / 文本文件与图片。
         let visible = entries.filter { entry in
-            entry.isDirectory || !showsOnlySupportedFiles || MarkdownFileType.isDocument(entry.url) || MarkdownFileType.isImage(entry.url)
+            entry.isDirectory || MarkdownFileType.isDocument(entry.url) || MarkdownFileType.isImage(entry.url)
         }
 
         // 合并：保留已有节点的展开状态与子节点。
@@ -173,7 +172,8 @@ public final class WorkspaceService {
         let task = Task { (try? await fileSystem.markdownFiles(under: rootURL, rules: rules)) ?? [] }
         markdownFileTask = task
         let files = await task.value
-        if markdownFileTask == task, root?.url == rootURL {
+        // open / close 会清空 markdownFileTask，任务仍相同说明根目录没有变化。
+        if markdownFileTask == task {
             markdownFileCache = files
             markdownFileTask = nil
         }
@@ -194,7 +194,7 @@ public final class WorkspaceService {
 
     @discardableResult
     public func createMarkdownFile(in directory: URL, baseName: String = "Untitled") async throws(LiteMDError) -> URL {
-        let url = try await createUnique(in: directory, baseName: baseName, extension: "md") { url throws(LiteMDError) in
+        let url = try await UniqueItemNaming.workspace.create(in: directory, baseName: baseName, extension: "md") { url throws(LiteMDError) in
             try await self.fileSystem.createFile(at: url, contents: Data())
         }
         await refreshDirectory(directory)
@@ -204,7 +204,7 @@ public final class WorkspaceService {
 
     @discardableResult
     public func createFolder(in directory: URL, baseName: String = "New Folder") async throws(LiteMDError) -> URL {
-        let url = try await createUnique(in: directory, baseName: baseName, extension: nil) { url throws(LiteMDError) in
+        let url = try await UniqueItemNaming.workspace.create(in: directory, baseName: baseName, extension: "") { url throws(LiteMDError) in
             try await self.fileSystem.createDirectory(at: url)
         }
         await refreshDirectory(directory)
@@ -254,8 +254,7 @@ public final class WorkspaceService {
     public func duplicate(_ url: URL) async throws(LiteMDError) -> URL {
         let directory = url.deletingLastPathComponent()
         let base = url.deletingPathExtension().lastPathComponent + " copy"
-        let pathExtension = url.pathExtension.isEmpty ? nil : url.pathExtension
-        let copy = try await createUnique(in: directory, baseName: base, extension: pathExtension) { destination throws(LiteMDError) in
+        let copy = try await UniqueItemNaming.workspace.create(in: directory, baseName: base, extension: url.pathExtension) { destination throws(LiteMDError) in
             try await self.fileSystem.copyItem(from: url, to: destination)
         }
         await refreshDirectory(directory)
@@ -274,26 +273,5 @@ public final class WorkspaceService {
 
     static func isValidFileName(_ name: String) -> Bool {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains(":") && name.utf8.count <= 255
-    }
-
-    /// 生成不冲突的名称并执行创建。创建操作本身必须在目标已存在时失败（O_EXCL 语义）。
-    private func createUnique(
-        in directory: URL,
-        baseName: String,
-        extension pathExtension: String?,
-        create: (URL) async throws(LiteMDError) -> Void
-    ) async throws(LiteMDError) -> URL {
-        for attempt in 1...1_000 {
-            let name = attempt == 1 ? baseName : "\(baseName) \(attempt)"
-            let fileName = pathExtension.map { "\(name).\($0)" } ?? name
-            let url = directory.appendingPathComponent(fileName)
-            do throws(LiteMDError) {
-                try await create(url)
-                return url.standardizedFileURL
-            } catch where error.reason == .alreadyExists {
-                continue
-            }
-        }
-        throw LiteMDError(kind: .workspace, reason: .alreadyExists, fileName: baseName)
     }
 }

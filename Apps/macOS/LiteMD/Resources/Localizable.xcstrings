@@ -7977,23 +7977,6 @@
         }
       }
     },
-    "Unable to read %@.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unable to read %@."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法读取 %@。"
-          }
-        }
-      }
-    },
     "Unable to recover %@.": {
       "extractionState": "manual",
       "localizations": {
