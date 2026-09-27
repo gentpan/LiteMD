@@ -298,6 +298,28 @@ public final class DocumentService {
         try await saveCoordinator.save(document, policy: .overwriteExternalChanges)
     }
 
+    // MARK: Replace in folder
+
+    /// 在没有打开的文件里替换文字：先把当前版本存入历史（可以在“历史版本”里找回），
+    /// 再按原来的编码与换行符写回。已在标签页中打开的文件要通过编辑器替换（可以撤销），这里拒绝处理。
+    /// 返回替换次数；没有匹配时不写文件。
+    public func replaceText(inFileAt url: URL, _ query: SearchQuery, with replacement: String) async throws(LiteMDError) -> Int {
+        let url = url.standardizedFileURL
+        if await existingDocument(for: url) != nil {
+            throw LiteMDError(kind: .save, reason: .alreadyOpen, fileName: url.lastPathComponent)
+        }
+        let loaded = try await fileSystem.readText(at: url)
+        let result = WorkspaceSearcher.replacing(query, with: replacement, in: loaded.text)
+        guard result.count > 0 else { return 0 }
+
+        await saveCoordinator.waitForHistoryMigration()
+        if let versionHistory, let data = try? await fileSystem.readData(at: url) {
+            await versionHistory.storeSnapshot(of: url, data: data, date: Date())
+        }
+        _ = try await fileSystem.writeText(result.text, encoding: loaded.encoding, lineEnding: loaded.lineEnding, to: url, requireExisting: true)
+        return result.count
+    }
+
     // MARK: Version history
 
     /// 文档的历史版本与 iCloud 冲突版本（新到旧）。未保存过的文档没有历史。

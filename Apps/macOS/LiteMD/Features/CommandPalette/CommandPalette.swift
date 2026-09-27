@@ -103,6 +103,7 @@ extension AppModel {
             PaletteCommand(id: "view.files", title: String(localized: "Show Files"), category: view, symbol: "folder", shortcut: "⌃⌘1", keywords: "show files sidebar") { self.showSidebar(.files) },
             PaletteCommand(id: "view.outline", title: String(localized: "Show Outline"), category: view, symbol: "list.bullet.indent", shortcut: "⌃⌘2", keywords: "show outline headings toc") { self.showSidebar(.outline) },
             PaletteCommand(id: "view.search", title: String(localized: "Search in Folder"), category: view, symbol: "magnifyingglass", shortcut: "⇧⌘F", keywords: "search find folder", isEnabled: hasWorkspace) { self.showSidebar(.search) },
+            PaletteCommand(id: "view.replace", title: String(localized: "Replace in Folder"), category: view, symbol: "arrow.2.squarepath", shortcut: "⌥⇧⌘F", keywords: "replace find folder all rename term", isEnabled: hasWorkspace) { self.showReplaceInFolder() },
             PaletteCommand(id: "view.nextTab", title: String(localized: "Show Next Tab"), category: view, symbol: "arrow.right", shortcut: "⇧⌘]", keywords: "show next tab") { self.selectDocument(offset: 1) },
             PaletteCommand(id: "view.previousTab", title: String(localized: "Show Previous Tab"), category: view, symbol: "arrow.left", shortcut: "⇧⌘[", keywords: "show previous tab") { self.selectDocument(offset: -1) },
         ]

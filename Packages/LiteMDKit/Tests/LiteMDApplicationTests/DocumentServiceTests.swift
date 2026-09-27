@@ -408,6 +408,45 @@ struct VersionHistoryTests {
         #expect(directory.read(url) == "original content v1 v2")
     }
 
+    @Test func replaceInClosedFileKeepsEncodingLineEndingsAndHistory() async throws {
+        let directory = TemporaryDirectory()
+        let historyDirectory = TemporaryDirectory()
+        let recoveryDirectory = TemporaryDirectory()
+        let history = FileVersionHistoryStore(directory: historyDirectory.url)
+        let service = DocumentService(
+            fileSystem: LocalFileSystem(),
+            parser: LiteMDMarkdownParserStub(),
+            recoveryStore: FileRecoveryStore(directory: recoveryDirectory.url),
+            versionHistory: history
+        )
+        // 带 BOM 的 UTF-8、Windows 换行：替换后原样保留。
+        let url = directory.url.appendingPathComponent("bom.md")
+        let bom = Data([0xEF, 0xBB, 0xBF])
+        try (bom + Data("旧名称\r\n第二行 旧名称\r\n".utf8)).write(to: url)
+
+        let count = try await service.replaceText(inFileAt: url, SearchQuery(text: "旧名称"), with: "新名称")
+        #expect(count == 2)
+        #expect(try Data(contentsOf: url) == bom + Data("新名称\r\n第二行 新名称\r\n".utf8))
+
+        // 替换前的版本进了历史，可以找回。
+        let snapshots = await history.snapshots(for: url)
+        #expect(snapshots.count == 1)
+
+        // 没有匹配时不写文件，也不多存历史。
+        #expect(try await service.replaceText(inFileAt: url, SearchQuery(text: "不存在"), with: "x") == 0)
+        #expect(await history.snapshots(for: url).count == 1)
+    }
+
+    @Test func replaceRefusesFilesThatAreOpenInATab() async throws {
+        let env = TestEnvironment()
+        let url = env.directory.file("open.md", "hello")
+        _ = try await env.service.openDocument(at: url)
+        await #expect(throws: LiteMDError.self) {
+            try await env.service.replaceText(inFileAt: url, SearchQuery(text: "hello"), with: "bye")
+        }
+        #expect(env.directory.read(url) == "hello")
+    }
+
     @Test func keepsOneSnapshotPerIntervalAndSkipsDuplicates() async throws {
         let directory = TemporaryDirectory()
         let historyDirectory = TemporaryDirectory()

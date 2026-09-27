@@ -292,6 +292,23 @@
         }
       }
     },
+    "%lld occurrences in %lld files will be replaced. Changes to open documents can be undone; other files keep their previous version in Version History.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld occurrences in %lld files will be replaced. Changes to open documents can be undone; other files keep their previous version in Version History."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将在 %2$lld 个文件中替换 %1$lld 处。已打开的文档可以撤销；其他文件替换前的版本会保存在“历史版本”里。"
+          }
+        }
+      }
+    },
     "%lld results in %lld files": {
       "extractionState": "manual",
       "localizations": {
@@ -3029,6 +3046,23 @@
         }
       }
     },
+    "Hide Replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Replace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏替换"
+          }
+        }
+      }
+    },
     "Hide Toolbar": {
       "extractionState": "manual",
       "localizations": {
@@ -4560,6 +4594,23 @@
         }
       }
     },
+    "Nothing to replace.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to replace."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可替换的内容。"
+          }
+        }
+      }
+    },
     "Numbered List": {
       "extractionState": "manual",
       "localizations": {
@@ -5665,6 +5716,108 @@
         }
       }
     },
+    "Replace All": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace All"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部替换"
+          }
+        }
+      }
+    },
+    "Replace every match in the folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace every match in the folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换文件夹中所有匹配的内容"
+          }
+        }
+      }
+    },
+    "Replace in Folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace in Folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件夹中替换"
+          }
+        }
+      }
+    },
+    "Replace with": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace with"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换为"
+          }
+        }
+      }
+    },
+    "Replace “%@” with “%@”?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace “%@” with “%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要把“%1$@”替换为“%2$@”吗？"
+          }
+        }
+      }
+    },
+    "Replaced %lld occurrences in %lld files.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replaced %lld occurrences in %lld files."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 %2$lld 个文件中替换 %1$lld 处。"
+          }
+        }
+      }
+    },
     "Restart LiteMD to use the new language.": {
       "extractionState": "manual",
       "localizations": {
@@ -6515,6 +6668,23 @@
         }
       }
     },
+    "Show Replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Replace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示替换"
+          }
+        }
+      }
+    },
     "Show formatting toolbar": {
       "extractionState": "manual",
       "localizations": {
@@ -6596,6 +6766,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "暖阳"
+          }
+        }
+      }
+    },
+    "Some files could not be changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some files could not be changed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有些文件没能修改。"
           }
         }
       }
@@ -7310,6 +7497,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法完成操作。"
+          }
+        }
+      }
+    },
+    "The other files were replaced. The files listed below were left unchanged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The other files were replaced. The files listed below were left unchanged."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其余文件已替换，下面这些文件保持原样。"
           }
         }
       }
@@ -8755,6 +8959,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "“%@”还不存在。"
+          }
+        }
+      }
+    },
+    "“%@” has a conflict with the version on disk.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” has a conflict with the version on disk."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”与磁盘上的版本有冲突。"
           }
         }
       }

@@ -208,6 +208,21 @@ struct WorkspaceSearcherTests {
         #expect(sensitive.count == 1)
     }
 
+    @Test func replacesWithTheSameMatchingRulesAsSearch() {
+        let text = "LiteMD litemd LITEMD 中文LiteMD"
+        let insensitive = WorkspaceSearcher.replacing(SearchQuery(text: "litemd"), with: "Lite", in: text)
+        #expect(insensitive.count == WorkspaceSearcher.matches(of: SearchQuery(text: "litemd"), in: text).count)
+        #expect(insensitive.text == "Lite Lite Lite 中文Lite")
+
+        let sensitive = WorkspaceSearcher.replacing(SearchQuery(text: "litemd", caseSensitive: true), with: "x", in: text)
+        #expect(sensitive.count == 1)
+        #expect(sensitive.text == "LiteMD x LITEMD 中文LiteMD")
+
+        // 依次不重叠：与搜索的计数一致。
+        #expect(WorkspaceSearcher.replacing(SearchQuery(text: "aa"), with: "b", in: "aaa").count == 1)
+        #expect(WorkspaceSearcher.replacing(SearchQuery(text: ""), with: "b", in: "aaa").count == 0)
+    }
+
     @Test func searchesFilesAndPrefersOpenDocumentContent() async throws {
         let directory = TemporaryDirectory()
         let a = directory.file("a.md", "alpha LiteMD")

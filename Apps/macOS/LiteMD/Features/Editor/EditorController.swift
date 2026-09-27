@@ -554,6 +554,14 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         textView.scrollRangeToVisible(result.selection.range)
     }
 
+    /// 文件夹范围“全部替换”作用在已打开的文档上：作为一次编辑，可以撤销。返回替换次数。
+    func replaceAll(_ query: SearchQuery, with replacement: String) -> Int {
+        let result = WorkspaceSearcher.replacing(query, with: replacement, in: textView.string)
+        guard result.count > 0 else { return 0 }
+        replaceEntireText(with: result.text, actionName: String(localized: "Replace All"))
+        return result.count
+    }
+
     /// Reload 等整体替换：走编辑通道，因此可以撤销。
     func replaceEntireText(with text: String) {
         replaceEntireText(with: text, actionName: String(localized: "Reload"))

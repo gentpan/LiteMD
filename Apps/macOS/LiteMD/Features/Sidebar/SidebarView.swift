@@ -529,6 +529,18 @@ struct OutlineListView: View {
 
 // MARK: - Search
 
+private extension View {
+    /// 侧栏搜索与替换输入框共用的外框。
+    func fieldBox() -> some View {
+        padding(.horizontal, Space.s2)
+            .padding(.vertical, Space.s1)
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.small)
+                    .stroke(Color.borderSubtle, lineWidth: 1)
+            )
+    }
+}
+
 struct SearchPanelView: View {
     @Environment(AppModel.self) private var model
     @FocusState private var isFieldFocused: Bool
@@ -537,28 +549,36 @@ struct SearchPanelView: View {
         @Bindable var search = model.search
 
         VStack(spacing: 0) {
-            HStack(spacing: Space.s2) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Color.textTertiary)
-                TextField("Search in folder", text: $search.query)
-                    .textFieldStyle(.plain)
-                    .focused($isFieldFocused)
-                    .onSubmit { search.refresh() }
-                Toggle(isOn: $search.isCaseSensitive) {
-                    Text(verbatim: "Aa")
-                        .font(.system(size: TextSize.xs, weight: .semibold))
+            VStack(spacing: Space.s2) {
+                HStack(spacing: Space.s1) {
+                    Button {
+                        search.showsReplace.toggle()
+                    } label: {
+                        Image(systemName: search.showsReplace ? "chevron.down" : "chevron.right")
+                            .font(.system(size: TextSize.xs, weight: .semibold))
+                            .foregroundStyle(Color.textTertiary)
+                            .frame(width: Space.s4)
+                    }
+                    .buttonStyle(.plain)
+                    .help(search.showsReplace ? "Hide Replace" : "Show Replace")
+                    .accessibilityLabel(search.showsReplace ? "Hide Replace" : "Show Replace")
+
+                    searchField(search)
                 }
-                .accessibilityLabel("Match Case")
-                .toggleStyle(.button)
-                .buttonStyle(.borderless)
-                .help("Match Case")
+                if search.showsReplace {
+                    HStack(spacing: Space.s1) {
+                        Color.clear.frame(width: Space.s4, height: 1)
+                        replaceField(search)
+                    }
+                }
+                if search.showsReplace, let summary = search.replaceSummary {
+                    Text(summary.occurrences == 0 ? "Nothing to replace." : "Replaced \(summary.occurrences) occurrences in \(summary.files) files.")
+                        .font(.system(size: TextSize.xs))
+                        .foregroundStyle(Color.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, Space.s4 + Space.s1)
+                }
             }
-            .padding(.horizontal, Space.s2)
-            .padding(.vertical, Space.s1)
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.small)
-                    .stroke(Color.borderSubtle, lineWidth: 1)
-            )
             .padding(Space.s3)
 
             Divider()
@@ -566,6 +586,48 @@ struct SearchPanelView: View {
             content(search)
         }
         .onAppear { isFieldFocused = true }
+    }
+
+    private func searchField(_ search: SearchModel) -> some View {
+        @Bindable var search = search
+        return HStack(spacing: Space.s2) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Color.textTertiary)
+            TextField("Search in folder", text: $search.query)
+                .textFieldStyle(.plain)
+                .focused($isFieldFocused)
+                .onSubmit { search.refresh() }
+            Toggle(isOn: $search.isCaseSensitive) {
+                Text(verbatim: "Aa")
+                    .font(.system(size: TextSize.xs, weight: .semibold))
+            }
+            .accessibilityLabel("Match Case")
+            .toggleStyle(.button)
+            .buttonStyle(.borderless)
+            .help("Match Case")
+        }
+        .fieldBox()
+    }
+
+    private func replaceField(_ search: SearchModel) -> some View {
+        @Bindable var search = search
+        return HStack(spacing: Space.s2) {
+            Image(systemName: "arrow.2.squarepath")
+                .foregroundStyle(Color.textTertiary)
+            TextField("Replace with", text: $search.replacement)
+                .textFieldStyle(.plain)
+                .onSubmit { search.replaceAll() }
+            if search.isReplacing {
+                ProgressView().controlSize(.mini)
+            } else {
+                Button("Replace All") { search.replaceAll() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: TextSize.xs, weight: .semibold))
+                    .disabled(search.query.isEmpty)
+                    .help("Replace every match in the folder")
+            }
+        }
+        .fieldBox()
     }
 
     @ViewBuilder

@@ -124,6 +124,8 @@ struct LiteMDCommands: Commands {
                 .keyboardShortcut("2", modifiers: [.command, .control])
             Button("Search in Folder") { model.showSidebar(.search) }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
+            Button("Replace in Folder") { model.showReplaceInFolder() }
+                .keyboardShortcut("f", modifiers: [.command, .option, .shift])
             Divider()
         }
 

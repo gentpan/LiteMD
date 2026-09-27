@@ -134,6 +134,16 @@ public final class WorkspaceSearcher: Sendable {
         return results
     }
 
+    /// 按搜索的同一套规则替换（纯文本、可选区分大小写、依次不重叠），保证替换的正是搜到的那些。
+    /// 返回新正文与替换次数。
+    public static func replacing(_ query: SearchQuery, with replacement: String, in text: String) -> (text: String, count: Int) {
+        guard !query.text.isEmpty else { return (text, 0) }
+        let result = NSMutableString(string: text)
+        let options: NSString.CompareOptions = query.caseSensitive ? [] : [.caseInsensitive]
+        let count = result.replaceOccurrences(of: query.text, with: replacement, options: options, range: NSRange(location: 0, length: result.length))
+        return (result as String, count)
+    }
+
     /// 避免在代理对中间截断。
     private static func safeRange(_ string: NSString, _ range: NSRange) -> NSRange {
         string.rangeOfComposedCharacterSequences(for: range)
