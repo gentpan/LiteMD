@@ -46,8 +46,7 @@ struct MarkdownParserTests {
     @Test func escapesTextAndCode() {
         let result = parse("a < b & c\n\n```html\n<script>alert(1)</script>\n```\n")
         #expect(result.html.contains("a &lt; b &amp; c"))
-        #expect(result.html.contains("<code class=\"language-html\">&lt;script&gt;"))
-        #expect(result.codeBlocks == [CodeBlockItem(language: "html", startLine: 3, endLine: 5)])
+        #expect(result.html.contains("<pre data-line=\"3\"><code class=\"language-html\">&lt;script&gt;"))
     }
 
     @Test func sanitizesDangerousHTMLAndURLs() {
@@ -70,12 +69,12 @@ struct MarkdownParserTests {
         #expect(result.html.contains("<kbd>⌘</kbd>"))
     }
 
-    @Test func rewritesFileImageURLsAndCollectsImages() {
+    @Test func rewritesFileImageURLs() {
         let result = parse("![shot](assets/a.png) ![abs](file:///Users/me/b%20c.png) ![bad](javascript:x)")
         #expect(result.html.contains("src=\"assets/a.png\""))
         #expect(result.html.contains("src=\"litemd-asset://file/Users/me/b%20c.png\""))
         #expect(!result.html.contains("javascript"))
-        #expect(result.images.map(\.source) == ["assets/a.png", "file:///Users/me/b%20c.png", "javascript:x"])
+        #expect(result.html.contains("bad"))
     }
 
     @Test func doesNotConvertQuotesToSmartQuotes() {
@@ -163,9 +162,10 @@ struct MarkdownHighlighterTests {
         #expect(pipeTokens.count == 3 + 1 + 3)
     }
 
-    @Test func fragmentOffsetsAreShifted() {
-        let tokens = highlighter.tokens(inFragment: "**b**", baseOffset: 100)
-        #expect(tokens.first?.range == NSRange(location: 100, length: 5))
+    @Test func inlineCodeAtLineStartDoesNotOpenFence() {
+        let text = "```ls``` lists files\n**b**"
+        #expect(kinds(text, at: "**b**").contains(.strong))
+        #expect(!kinds(text, at: "**b**").contains(.codeBlock))
     }
 
     @Test func largeDocumentIsFast() {
@@ -192,6 +192,23 @@ struct CopyAsTests {
         let html = parser.htmlFragment(from: "# Hi\n\n**x**")
         #expect(html == "<h1 id=\"hi\">Hi</h1>\n<p><strong>x</strong></p>")
     }
+
+    @Test func htmlFragmentRendersWikiLinksAndMath() {
+        let html = parser.htmlFragment(from: "[[Note|Alias]] and $\\{1,2\\}$")
+        #expect(html == "<p><span class=\"wikilink\">Alias</span> and <span class=\"math math-inline\">\\{1,2\\}</span></p>")
+    }
+
+    @Test func xhtmlFragmentSharesHeadingAnchorsWithBody() {
+        let fragment = parser.xhtmlFragment(from: "# Intro [[Note|Alias]]\n\n$x_1$ and ![[pic.png]]")
+        #expect(fragment.headings.map(\.anchor) == ["intro-alias"])
+        #expect(fragment.html.contains("<h1 id=\"intro-alias\">Intro <span class=\"wikilink\">Alias</span></h1>"))
+        #expect(fragment.html.contains("<code class=\"math\">x_1</code>"))
+        #expect(fragment.html.contains("<img class=\"wikilink-embed\" src=\"pic.png\" alt=\"pic.png\"/>"))
+    }
+
+    @Test func plainTextKeepsWikiLinkTextAndMathSource() {
+        #expect(parser.plainText(from: "See [[Note|Alias]] and $\\{1\\}$, `[[code]]`") == "See Alias and $\\{1\\}$, [[code]]")
+    }
 }
 
 @Suite("Highlight extension")
@@ -216,7 +233,6 @@ struct MarkdownExtensionRenderingTests {
         #expect(result.html.contains("href=\"litemd-wiki:Notes/%E6%97%A5%E8%AE%B0#%E4%BB%8A%E5%A4%A9\""))
         #expect(result.html.contains("<img class=\"wikilink-embed\" src=\"pic.png\""))
         #expect(result.headings.first?.title == "About the *plan*")
-        #expect(result.wikiLinks.map(\.target) == ["Project_Plan", "Notes/日记", "pic.png"])
         #expect(!result.html.contains("\u{E000}"))
     }
 
@@ -233,6 +249,38 @@ struct MarkdownExtensionRenderingTests {
         #expect(result.html.contains("<div class=\"mermaid-block\" data-line=\"1\"><pre class=\"mermaid-source\">graph TD\n  A--&gt;B\n</pre></div>"))
         #expect(result.html.contains("<div class=\"math math-display\" data-line=\"6\">E=mc^2\n</div>"))
         #expect(result.html.contains("<code class=\"language-swift\">"))
+    }
+
+    @Test func extensionSyntaxInsideRawHTMLIsSanitizedAsSource() {
+        let image = render("<img src=\"x.png\" alt=\"$\" onerror=\"alert(1)$\">").html
+        #expect(!image.contains("onerror"))
+        #expect(image.contains("<img src=\"x.png\" alt=\"$\">"))
+
+        let div = render("<div [[a onmouseover=x style=position:fixed b]]>hi</div>").html
+        #expect(!div.contains("onmouseover"))
+        #expect(!div.contains("[["))
+        #expect(div.contains("<div style=\"position:fixed\">hi</div>"))
+    }
+
+    @Test func extensionSyntaxInsideLinkDestinationStaysInsideAttribute() {
+        let html = render("[x](http://a/[[b\"onmouseover=alert(1)]]) ![y](p.png \"$\" onload=\"x$\")").html
+        #expect(html.contains("<a href=\"http://a/[[b&quot;onmouseover=alert(1)]]\">x</a>"))
+        #expect(html.contains("title=\"$&quot; onload=&quot;x$\""))
+        #expect(!html.contains("\"onmouseover"))
+        #expect(!html.contains("\" onload"))
+    }
+
+    @Test func embedAliasIsEscapedAsAttribute() {
+        let html = render("![[pic.png|a\" onerror=\"alert(1)]]").html
+        #expect(html.contains("alt=\"a&quot; onerror=&quot;alert(1)\""))
+    }
+
+    @Test func privateUseCharactersDoNotCollideWithPlaceholders() {
+        #expect(render("icon \u{E000} [[Note]]").html.contains("icon \u{E000} <a class=\"wikilink\" href=\"litemd-wiki:Note\">Note</a>"))
+        #expect(render("\u{E000}0\u{E001} and [[Note]]").html.contains("<p data-line=\"1\">\u{E000}0\u{E001} and <a class=\"wikilink\""))
+        #expect(render("a\u{E001}b $x$").html.contains("a\u{E001}b <span"))
+        #expect(render("`\u{E000}1\u{E001}` [[x]]").html.contains("<code>\u{E000}1\u{E001}</code>"))
+        #expect(!render("[[Note]]\u{0301} and $x$\u{0301}").html.contains("\u{E000}"))
     }
 
     @Test func restoresSourceInsideIndentedCodeAndRawHTML() {

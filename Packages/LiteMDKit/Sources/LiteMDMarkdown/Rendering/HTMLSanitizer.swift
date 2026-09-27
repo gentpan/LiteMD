@@ -62,7 +62,7 @@ public enum HTMLSanitizer {
                 continue
             }
 
-            guard let tag = parseTag(scalars, index) else {
+            guard let tag = HTMLTag.parse(scalars, at: index) else {
                 append("&lt;")
                 index += 1
                 continue
@@ -100,6 +100,8 @@ public enum HTMLSanitizer {
 
     /// 返回 nil 表示删除属性；返回 `.some(nil)` 表示保留无值属性。
     private static func sanitizeAttribute(name: String, value: String?, fileURLPrefix: String?) -> String??  {
+        // 属性名原样输出，只保留规范的名字，引号、括号之类一律丢掉。
+        guard isValidAttributeName(name) else { return nil }
         if name.hasPrefix("on") || blockedAttributes.contains(name) { return nil }
         guard let value else { return .some(nil) }
         if urlAttributes.contains(name) {
@@ -115,15 +117,68 @@ public enum HTMLSanitizer {
         return .some(value)
     }
 
-    private struct Tag {
-        var name: String
-        var isClosing: Bool
-        var isSelfClosing: Bool
-        var attributes: [(name: String, value: String?)]
-        var end: Int
+    private static func isValidAttributeName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first, first.isASCII, first.properties.isAlphabetic || first == "_" || first == ":" else { return false }
+        return name.unicodeScalars.allSatisfy { scalar in
+            scalar.isASCII && (scalar.properties.isAlphabetic || ("0"..."9").contains(scalar) || "_:.-".unicodeScalars.contains(scalar))
+        }
     }
 
-    private static func parseTag(_ scalars: [Unicode.Scalar], _ start: Int) -> Tag? {
+    private static func matches(_ scalars: [Unicode.Scalar], _ index: Int, _ literal: String) -> Bool {
+        let pattern = Array(literal.unicodeScalars)
+        guard index + pattern.count <= scalars.count else { return false }
+        for offset in 0..<pattern.count where scalars[index + offset] != pattern[offset] {
+            return false
+        }
+        return true
+    }
+
+    private static func find(_ scalars: [Unicode.Scalar], _ literal: String, from start: Int) -> Int? {
+        var index = start
+        while index < scalars.count {
+            if matches(scalars, index, literal) { return index }
+            index += 1
+        }
+        return nil
+    }
+
+    /// 返回闭合标签之后的位置。
+    private static func findClosingTag(_ scalars: [Unicode.Scalar], name: String, from start: Int) -> Int? {
+        var index = start
+        let needle = Array("</\(name)".unicodeScalars)
+        while index < scalars.count {
+            if index + needle.count <= scalars.count {
+                var matched = true
+                for offset in 0..<needle.count {
+                    let lhs = String(scalars[index + offset]).lowercased()
+                    if lhs != String(needle[offset]) {
+                        matched = false
+                        break
+                    }
+                }
+                if matched, let close = find(scalars, ">", from: index + needle.count) {
+                    return close + 1
+                }
+            }
+            index += 1
+        }
+        return nil
+    }
+}
+
+/// 一个 HTML 标签（从 `<` 到 `>`）。净化器与 HTML 导入共用：带引号的属性值里可以出现 `>`。
+package struct HTMLTag: Sendable {
+    /// 小写。
+    package var name: String
+    package var isClosing: Bool
+    package var isSelfClosing: Bool
+    /// 名称小写，值已解码实体；无值属性的值为 nil。
+    package var attributes: [(name: String, value: String?)]
+    /// 标签结束后的位置。
+    package var end: Int
+
+    /// `scalars[start]` 应当是 `<`。名称不以字母开头、属性外遇到 `<`、到结尾都没有 `>` 时不算标签，返回 nil。
+    package static func parse(_ scalars: [Unicode.Scalar], at start: Int) -> HTMLTag? {
         var index = start + 1
         var isClosing = false
         if index < scalars.count, scalars[index] == "/" {
@@ -133,7 +188,7 @@ public enum HTMLSanitizer {
         guard index < scalars.count, scalars[index].properties.isAlphabetic, scalars[index].isASCII else { return nil }
 
         var name = ""
-        while index < scalars.count, isTagNameScalar(scalars[index]) {
+        while index < scalars.count, isNameScalar(scalars[index]) {
             name.unicodeScalars.append(scalars[index])
             index += 1
         }
@@ -145,7 +200,7 @@ public enum HTMLSanitizer {
         while index < scalars.count {
             let scalar = scalars[index]
             if scalar == ">" {
-                return Tag(name: name, isClosing: isClosing, isSelfClosing: isSelfClosing, attributes: attributes, end: index + 1)
+                return HTMLTag(name: name, isClosing: isClosing, isSelfClosing: isSelfClosing, attributes: attributes, end: index + 1)
             }
             if scalar.properties.isWhitespace {
                 index += 1
@@ -188,7 +243,7 @@ public enum HTMLSanitizer {
                         index += 1
                     }
                 }
-                value = HTMLEscaping.decodeBasicEntities(parsed)
+                value = HTMLEscaping.decodeEntities(parsed)
             }
             if !attributeName.isEmpty {
                 attributes.append((attributeName, value))
@@ -197,49 +252,8 @@ public enum HTMLSanitizer {
         return nil
     }
 
-    private static func isTagNameScalar(_ scalar: Unicode.Scalar) -> Bool {
+    private static func isNameScalar(_ scalar: Unicode.Scalar) -> Bool {
         scalar.isASCII && (scalar.properties.isAlphabetic || ("0"..."9").contains(scalar) || scalar == "-" || scalar == ":")
-    }
-
-    private static func matches(_ scalars: [Unicode.Scalar], _ index: Int, _ literal: String) -> Bool {
-        let pattern = Array(literal.unicodeScalars)
-        guard index + pattern.count <= scalars.count else { return false }
-        for offset in 0..<pattern.count where scalars[index + offset] != pattern[offset] {
-            return false
-        }
-        return true
-    }
-
-    private static func find(_ scalars: [Unicode.Scalar], _ literal: String, from start: Int) -> Int? {
-        var index = start
-        while index < scalars.count {
-            if matches(scalars, index, literal) { return index }
-            index += 1
-        }
-        return nil
-    }
-
-    /// 返回闭合标签之后的位置。
-    private static func findClosingTag(_ scalars: [Unicode.Scalar], name: String, from start: Int) -> Int? {
-        var index = start
-        let needle = Array("</\(name)".unicodeScalars)
-        while index < scalars.count {
-            if index + needle.count <= scalars.count {
-                var matched = true
-                for offset in 0..<needle.count {
-                    let lhs = String(scalars[index + offset]).lowercased()
-                    if lhs != String(needle[offset]) {
-                        matched = false
-                        break
-                    }
-                }
-                if matched, let close = find(scalars, ">", from: index + needle.count) {
-                    return close + 1
-                }
-            }
-            index += 1
-        }
-        return nil
     }
 }
 
@@ -288,38 +302,40 @@ public enum URLSanitizer {
 }
 
 public enum HTMLEscaping {
+    /// 元素内容。
     public static func text(_ value: String) -> String {
-        var result = ""
-        result.reserveCapacity(value.utf8.count)
-        for character in value.unicodeScalars {
-            switch character {
-            case "&": result += "&amp;"
-            case "<": result += "&lt;"
-            case ">": result += "&gt;"
-            default: result.unicodeScalars.append(character)
-            }
-        }
-        return result
+        escape(value, quotes: false)
     }
 
+    /// 属性值。HTML 与 XML（DOCX、EPUB）通用。
     public static func attribute(_ value: String) -> String {
+        escape(value, quotes: true)
+    }
+
+    /// XML 1.0 不允许的字符（除制表、换行、回车外的 C0 控制字符，以及 U+FFFE、U+FFFF）直接丢弃：
+    /// 同样的转义也用于 EPUB 的 XHTML 与 DOCX，留下一个 U+000C 整个文件就打不开；HTML 里它们本来也不该出现。
+    private static func escape(_ value: String, quotes: Bool) -> String {
         var result = ""
         result.reserveCapacity(value.utf8.count)
-        for character in value.unicodeScalars {
-            switch character {
+        for scalar in value.unicodeScalars {
+            switch scalar {
             case "&": result += "&amp;"
             case "<": result += "&lt;"
             case ">": result += "&gt;"
-            case "\"": result += "&quot;"
-            case "'": result += "&#39;"
-            default: result.unicodeScalars.append(character)
+            case "\"" where quotes: result += "&quot;"
+            case "'" where quotes: result += "&#39;"
+            default:
+                if scalar.value < 0x20, scalar != "\n", scalar != "\r", scalar != "\t" { continue }
+                if scalar.value == 0xFFFE || scalar.value == 0xFFFF { continue }
+                result.unicodeScalars.append(scalar)
             }
         }
         return result
     }
 
-    /// 解码属性值中的常见实体，避免 `&#106;avascript:` 之类的绕过。
-    static func decodeBasicEntities(_ value: String) -> String {
+    /// 解码常见实体与数字字符引用。净化器用它还原属性值（避免 `&#106;avascript:` 之类的绕过），
+    /// HTML 导入用它还原正文。
+    package static func decodeEntities(_ value: String) -> String {
         guard value.contains("&") else { return value }
         var result = ""
         var index = value.startIndex
@@ -328,7 +344,7 @@ public enum HTMLEscaping {
                value.distance(from: index, to: semicolon) <= 10 {
                 let entity = String(value[value.index(after: index)..<semicolon])
                 if let decoded = decodeEntity(entity) {
-                    result.append(decoded)
+                    result.unicodeScalars.append(decoded)
                     index = value.index(after: semicolon)
                     continue
                 }
@@ -339,23 +355,20 @@ public enum HTMLEscaping {
         return result
     }
 
-    private static func decodeEntity(_ entity: String) -> Character? {
-        switch entity.lowercased() {
-        case "amp": return "&"
-        case "lt": return "<"
-        case "gt": return ">"
-        case "quot": return "\""
-        case "apos": return "'"
-        case "colon": return ":"
-        case "tab": return "\t"
-        case "newline": return "\n"
-        default: break
+    private static let namedEntities: [String: Unicode.Scalar] = [
+        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'",
+        "colon": ":", "tab": "\t", "newline": "\n", "nbsp": "\u{00A0}",
+        "copy": "©", "reg": "®", "mdash": "—", "ndash": "–", "hellip": "…",
+        "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”", "middot": "·", "times": "×",
+    ]
+
+    private static func decodeEntity(_ entity: String) -> Unicode.Scalar? {
+        if let scalar = namedEntities[entity] ?? namedEntities[entity.lowercased()] { return scalar }
+        if entity.hasPrefix("#x") || entity.hasPrefix("#X") {
+            return UInt32(entity.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init)
         }
-        if entity.hasPrefix("#x") || entity.hasPrefix("#X"), let value = UInt32(entity.dropFirst(2), radix: 16), let scalar = Unicode.Scalar(value) {
-            return Character(scalar)
-        }
-        if entity.hasPrefix("#"), let value = UInt32(entity.dropFirst()), let scalar = Unicode.Scalar(value) {
-            return Character(scalar)
+        if entity.hasPrefix("#") {
+            return UInt32(entity.dropFirst()).flatMap(Unicode.Scalar.init)
         }
         return nil
     }

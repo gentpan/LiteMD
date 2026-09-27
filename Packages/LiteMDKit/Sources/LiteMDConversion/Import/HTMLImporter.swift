@@ -94,9 +94,7 @@ public struct HTMLMarkdownConverter {
         case "ul", "ol":
             blocks.append(renderList(node, ordered: name == "ol", depth: listDepth))
         case "table":
-            let rows = node.descendants("tr").isEmpty
-                ? collectRows(node)
-                : collectRows(node)
+            let rows = collectRows(node)
             if !rows.isEmpty { blocks.append(MarkdownComposer.table(rows)) }
         default:
             convertBlocks(node, into: &blocks, listDepth: listDepth)

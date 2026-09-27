@@ -25,8 +25,8 @@ struct ZipTests {
         let archive = try ZipArchive(data: writer.finish())
 
         #expect(archive.orderedPaths == ["mimetype", "folder/large.txt", "binary.png"])
-        #expect(try archive.string(for: "mimetype") == "application/epub+zip")
-        #expect(try archive.string(for: "folder/large.txt") == large)
+        #expect(try archive.data(for: "mimetype") == Data("application/epub+zip".utf8))
+        #expect(try archive.data(for: "folder/large.txt") == Data(large.utf8))
         #expect(try archive.data(for: "/binary.png") == tinyPNG)
         #expect(ZipArchive.resolve("../media/a.png", relativeTo: "word/document.xml") == "media/a.png")
         #expect(ZipArchive.resolve("media/a.png", relativeTo: "word/document.xml") == "word/media/a.png")
@@ -36,6 +36,34 @@ struct ZipTests {
         #expect(throws: ConversionError.self) {
             try ZipArchive(data: Data("not a zip".utf8))
         }
+    }
+
+    @Test func totalDecompressionIsBudgeted() throws {
+        var writer = ZipWriter()
+        for index in 0..<3 {
+            writer.add("f\(index).txt", string: String(repeating: "a", count: 1000))
+        }
+        let archive = try ZipArchive(data: writer.finish(), maximumTotalSize: 2500)
+        #expect(try archive.data(for: "f0.txt").count == 1000)
+        #expect(try archive.data(for: "f1.txt").count == 1000)
+        #expect(throws: ConversionError.self) { try archive.data(for: "f2.txt") }
+    }
+
+    @Test func declaredSizeIsNotTrusted() throws {
+        var writer = ZipWriter()
+        writer.add("fake.txt", string: String(repeating: "a", count: 1000))
+        writer.add("real.txt", string: String(repeating: "b", count: 1000))
+        var data = writer.finish()
+        // 把第一条中央目录记录声明的解压大小改成 200 MB。
+        let record = try #require(data.range(of: Data([0x50, 0x4B, 0x01, 0x02]))).lowerBound
+        let declared = UInt32(200 * 1024 * 1024)
+        for byte in 0..<4 {
+            data[record + 24 + byte] = UInt8((declared >> (8 * UInt32(byte))) & 0xFF)
+        }
+        let archive = try ZipArchive(data: data, maximumTotalSize: Int(declared) + 500)
+        #expect(throws: ConversionError.self) { try archive.data(for: "fake.txt") }
+        // 失败的条目退回额度。
+        #expect(try archive.data(for: "real.txt").count == 1000)
     }
 }
 
@@ -85,12 +113,32 @@ struct DocxTests {
         }
         #expect(archive.contains("word/media/image1.png"))
 
-        let document = try archive.string(for: "word/document.xml")
+        let document = String(decoding: try archive.data(for: "word/document.xml"), as: UTF8.self)
         #expect(document.contains("<w:pStyle w:val=\"Heading1\"/>"))
         #expect(document.contains("<w:numPr><w:ilvl w:val=\"1\"/>"))
         #expect(document.contains("<w:rStyle w:val=\"VerbatimChar\"/>"))
         #expect(document.contains("<w:hyperlink r:id="))
         #expect(document.contains("<w:tbl>"))
+    }
+
+    @Test func nestedOrderedListKeepsStartNumber() throws {
+        let data = try DocxExporter().export("1. a\n\n   3. x\n", options: ExportOptions(title: "Lists"))
+        let numbering = String(decoding: try ZipArchive(data: data).data(for: "word/numbering.xml"), as: UTF8.self)
+        #expect(numbering.contains("<w:lvlOverride w:ilvl=\"1\"><w:startOverride w:val=\"3\"/></w:lvlOverride>"))
+        #expect(numbering.contains("<w:lvlOverride w:ilvl=\"0\"><w:startOverride w:val=\"1\"/></w:lvlOverride>"))
+    }
+
+    @Test func rendersExtensionsAndDropsControlCharacters() throws {
+        let data = try DocxExporter().export("[[Note|Alias]] and $x_1^2$ a\u{0C}b", options: ExportOptions(title: "T\u{01}"))
+        let archive = try ZipArchive(data: data)
+        let document = String(decoding: try archive.data(for: "word/document.xml"), as: UTF8.self)
+        #expect(document.contains("<w:t xml:space=\"preserve\">Alias</w:t>"))
+        #expect(document.contains("<w:rStyle w:val=\"VerbatimChar\"/></w:rPr><w:t xml:space=\"preserve\">x_1^2</w:t>"))
+        #expect(!document.contains("[[Note"))
+        #expect(!document.contains("\u{0C}"))
+        for part in ["word/document.xml", "docProps/core.xml"] {
+            #expect(throws: Never.self) { try XMLTree.parse(try archive.data(for: part)) }
+        }
     }
 
     @Test func roundTripsThroughImporter() throws {
@@ -149,6 +197,34 @@ struct OfficeImporterTests {
         let result = try XlsxImporter().convert(writer.finish())
         #expect(result.markdown == "## 预算\n\n| Item | Cost |  |\n| --- | --- | --- |\n| Coffee beans |  | 12.5 |\n")
         #expect(XlsxImporter.columnIndex("AB12") == 27)
+    }
+
+    @Test func spreadsheetCellReferencesAndGridAreBounded() throws {
+        #expect(XlsxImporter.columnIndex("XFD1") == 16_383)
+        #expect(XlsxImporter.columnIndex("XFE1") == nil)
+        #expect(XlsxImporter.columnIndex("ZZZZZZZZZZZZZZ1") == nil)
+        #expect(XlsxImporter.columnIndex("12") == nil)
+
+        let sheet = try XMLTree.parse(Data("""
+        <worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c><c r="ZZZZZZZZZZZZZZ1"><v>bad</v></c></row><row r="1048576"><c r="XFD1048576"><v>2</v></c></row></sheetData></worksheet>
+        """.utf8))
+        let table = XlsxImporter.rows(in: sheet, sharedStrings: [])
+        #expect(table.isTruncated)
+        #expect(table.rows.first?.first == "1")
+        #expect(table.rows.count * (table.rows.first?.count ?? 0) <= XlsxImporter.importedCellLimit)
+        #expect(!table.rows.joined().contains("bad"))
+    }
+
+    @Test func spreadsheetTextSkipsPhoneticRuns() throws {
+        let strings = try XMLTree.parse(Data("""
+        <sst><si><t>東京</t><rPh sb="0" eb="2"><t>トウキョウ</t></rPh></si><si><r><t>大</t></r><r><t>阪</t></r><rPh sb="0" eb="2"><t>オオサカ</t></rPh></si></sst>
+        """.utf8))
+        #expect(strings.children("si").map(XlsxImporter.richText) == ["東京", "大阪"])
+
+        let sheet = try XMLTree.parse(Data("""
+        <worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>京都</t><rPh><t>キョウト</t></rPh></is></c></row></sheetData></worksheet>
+        """.utf8))
+        #expect(XlsxImporter.rows(in: sheet, sharedStrings: []).rows == [["京都"]])
     }
 
     @Test func importsSlidesWithTitlesBulletsAndNotes() throws {
@@ -222,11 +298,99 @@ struct WebAndTextConversionTests {
         #expect(result.assets.count == 1)
     }
 
+    @Test func htmlAttributeValuesMayContainGreaterThan() throws {
+        let html = "<p><img alt=\"a > b\" src=\"p.png\"> after</p>"
+        let result = try DocumentImporter().convert(Data(html.utf8), fileName: "page.html", options: ImportOptions())
+        #expect(result.markdown == "![a > b](p.png) after\n")
+    }
+
+    @Test func decodesGB18030InsteadOfGuessingUTF16() throws {
+        let gb18030 = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)))
+        let text = try #require("你好，世界".data(using: gb18030))
+        #expect(try DocumentImporter().convert(text, fileName: "a.txt", options: ImportOptions()).markdown == "你好，世界")
+        let csv = try #require("名称,数量\n苹果,3\n".data(using: gb18030))
+        #expect(try DocumentImporter().convert(csv, fileName: "a.csv", options: ImportOptions()).markdown.contains("| 苹果 | 3 |"))
+
+        #expect(DocumentImporter.decode(try #require("hello, 世界".data(using: .utf16))) == "hello, 世界")
+        #expect(DocumentImporter.decode(try #require("plain ascii".data(using: .utf16LittleEndian))) == "plain ascii")
+        #expect(DocumentImporter.decode(try #require("plain ascii".data(using: .utf16BigEndian))) == "plain ascii")
+        #expect(DocumentImporter.decode(Data([0xEF, 0xBB, 0xBF]) + Data("abc".utf8)) == "abc")
+    }
+
+    @Test func escapesParenthesisListsAndTildeFences() throws {
+        #expect(MarkdownComposer.escapeLineStart("1) item") == "1\\) item")
+        #expect(MarkdownComposer.escapeLineStart("12. item") == "12\\. item")
+        #expect(MarkdownComposer.escapeLineStart("~~~ code") == "\\~~~ code")
+        let html = "<p>~~~</p><p>1) after</p><p>tail</p>"
+        let result = try DocumentImporter().convert(Data(html.utf8), fileName: "page.html", options: ImportOptions())
+        #expect(result.markdown == "\\~~~\n\n1\\) after\n\ntail\n")
+    }
+
     @Test func csvHandlesQuotesAndDelimiters() throws {
         let csv = "name,note\n\"LiteMD, app\",\"say \"\"hi\"\"\"\nplain,\"multi\nline\"\n"
         let result = try CsvImporter().convert(csv)
         #expect(result.markdown == "| name | note |\n| --- | --- |\n| LiteMD, app | say \"hi\" |\n| plain | multi<br>line |\n")
         #expect(CsvImporter.detectDelimiter("a;b;c\n1;2;3") == ";")
+    }
+
+    @Test func epubPackagesImagesStructurally() throws {
+        let folder = TemporaryFolder()
+        try tinyPNG.write(to: folder.url.appendingPathComponent("logo.png"))
+        try tinyPNG.write(to: folder.url.appendingPathComponent("it's.png"))
+        try tinyPNG.write(to: folder.url.appendingPathComponent("absolute.png"))
+        let absolute = folder.url.appendingPathComponent("absolute.png").absoluteString
+        let markdown = """
+        ![a](logo.png) ![b](logo.png) ![c](it's.png) ![d](\(absolute)) ![[logo.png]]
+
+        ```html
+        <img src="logo.png">
+        ```
+        """
+        let data = try EpubExporter().export(markdown, options: ExportOptions(title: "Images", documentDirectory: folder.url), stylesheet: "")
+        let archive = try ZipArchive(data: data)
+        let chapter = String(decoding: try archive.data(for: "OEBPS/chapter.xhtml"), as: UTF8.self)
+        #expect(chapter.contains("<code class=\"language-html\">&lt;img src=\"logo.png\"&gt;"))
+        #expect(chapter.contains("<img src=\"images/image1.png\" alt=\"a\"/> <img src=\"images/image1.png\" alt=\"b\"/>"))
+        #expect(chapter.contains("<img src=\"images/image2.png\" alt=\"c\"/>"))
+        #expect(chapter.contains("<img src=\"images/image3.png\" alt=\"d\"/>"))
+        #expect(chapter.contains("<img class=\"wikilink-embed\" src=\"images/image1.png\""))
+        #expect(archive.orderedPaths.filter { $0.hasPrefix("OEBPS/images/") }.count == 3)
+    }
+
+    @Test func epubTableOfContentsMatchesBodyAndStaysValidXML() throws {
+        let markdown = "# Intro [[Note|Alias]]\n\n## Math $x_1$\n\na\u{0C}b \u{FFFE}\n"
+        let data = try EpubExporter().export(markdown, options: ExportOptions(title: "Book"), stylesheet: "")
+        let archive = try ZipArchive(data: data)
+        let navigation = String(decoding: try archive.data(for: "OEBPS/nav.xhtml"), as: UTF8.self)
+        let chapter = String(decoding: try archive.data(for: "OEBPS/chapter.xhtml"), as: UTF8.self)
+        #expect(navigation.contains("<a href=\"chapter.xhtml#intro-alias\">Intro Alias</a>"))
+        #expect(chapter.contains("<h1 id=\"intro-alias\">"))
+        #expect(navigation.contains("<a href=\"chapter.xhtml#math-x_1\">Math $x_1$</a>"))
+        #expect(chapter.contains("<h2 id=\"math-x_1\">"))
+        for part in ["OEBPS/nav.xhtml", "OEBPS/chapter.xhtml"] {
+            #expect(throws: Never.self) { try XMLTree.parse(try archive.data(for: part)) }
+        }
+    }
+
+    @Test func latexHandlesListStartsNestingAndPackages() {
+        let latex = LatexExporter().export("0. zero\n\n1. a\n\n   3. b\n\n- [ ] todo\n\na < b > c\n", options: ExportOptions(title: "T"))
+        #expect(latex.contains("\\begin{enumerate}\n\\setcounter{enumi}{-1}\n\\item zero"))
+        #expect(latex.contains("\\setcounter{enumii}{2}\n\\item b"))
+        #expect(!latex.contains("\\setcounter{enumi}{2}"))
+        #expect(latex.contains("\\usepackage{amssymb}"))
+        #expect(latex.contains("\\usepackage[T1]{fontenc}"))
+        #expect(latex.contains("\\item[$\\square$] todo"))
+    }
+
+    @Test func latexKeepsMathAndGuardsImagePaths() {
+        let markdown = "Inline $x_1$ and $\\{1,2\\}$, [[Note|Alias]].\n\n$$\\frac{1}{2}$$\n\n![photo](my%20photo.png) ![pct](a%25b.png) ![web](https://x.y/a.png)\n"
+        let latex = LatexExporter().export(markdown, options: ExportOptions(title: "T"))
+        #expect(latex.contains("Inline $x_1$ and $\\{1,2\\}$, Alias."))
+        #expect(latex.contains("\\[\\frac{1}{2}\\]"))
+        #expect(latex.contains("\\includegraphics[width=0.8\\linewidth]{my photo.png}"))
+        #expect(!latex.contains("a%b.png"))
+        #expect(latex.contains("pct"))
+        #expect(latex.contains("web"))
     }
 
     @Test func latexEscapesAndUsesCtexForChinese() {

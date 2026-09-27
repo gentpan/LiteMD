@@ -1,12 +1,13 @@
 import Compression
 import Foundation
+import Synchronization
 
 /// 最小 ZIP 读写实现，供 DOCX / PPTX / XLSX / EPUB 使用。
 ///
 /// - 支持存储（method 0）与 DEFLATE（method 8）；
 /// - 不支持 ZIP64、加密与分卷；
 /// - 条目名只作为查找键，绝不直接拼接成磁盘路径（防止 zip-slip）；
-/// - 单个条目解压上限 256 MB，防止压缩炸弹。
+/// - 单个条目解压上限 256 MB，整个压缩包累计 512 MB，防止压缩炸弹。
 public struct ZipArchive: Sendable {
     public struct Entry: Sendable {
         public var path: String
@@ -17,13 +18,22 @@ public struct ZipArchive: Sendable {
     }
 
     public static let maximumEntrySize = 256 * 1024 * 1024
+    /// 导入时提取的图片都留在内存里，只限制单个条目挡不住成百上千个大条目。
+    public static let maximumTotalSize = 512 * 1024 * 1024
 
     private let data: Data
+    /// 副本之间共享，同一个压缩包无论从哪里读取都算在一起。
+    private let budget: DecompressionBudget
     public private(set) var entries: [String: Entry] = [:]
     public private(set) var orderedPaths: [String] = []
 
     public init(data: Data) throws(ConversionError) {
+        try self.init(data: data, maximumTotalSize: Self.maximumTotalSize)
+    }
+
+    init(data: Data, maximumTotalSize: Int) throws(ConversionError) {
         self.data = data
+        self.budget = DecompressionBudget(limit: maximumTotalSize)
         try readCentralDirectory()
     }
 
@@ -49,20 +59,24 @@ public struct ZipArchive: Sendable {
         guard start + entry.compressedSize <= data.count else {
             throw ConversionError.corrupted("Truncated entry \(path)")
         }
-        let compressed = data.subdata(in: start..<(start + entry.compressedSize))
-
+        let size: Int
         switch entry.method {
-        case 0:
-            return compressed
-        case 8:
-            return try Self.inflate(compressed, expectedSize: entry.uncompressedSize)
-        default:
-            throw ConversionError.unsupported("ZIP compression method \(entry.method)")
+        case 0: size = entry.compressedSize
+        case 8: size = entry.uncompressedSize
+        default: throw ConversionError.unsupported("ZIP compression method \(entry.method)")
         }
-    }
+        guard budget.consume(size) else {
+            throw ConversionError.corrupted("ZIP archive expands beyond \(Self.maximumTotalSize / 1024 / 1024) MB")
+        }
 
-    public func string(for path: String) throws(ConversionError) -> String {
-        String(decoding: try data(for: path), as: UTF8.self)
+        let compressed = data.subdata(in: start..<(start + entry.compressedSize))
+        guard entry.method == 8 else { return compressed }
+        do {
+            return try Self.inflate(compressed, expectedSize: entry.uncompressedSize)
+        } catch {
+            budget.refund(size)
+            throw error
+        }
     }
 
     /// 去掉开头的 `/` 与 `./`，并解析 `..`。
@@ -148,25 +162,46 @@ public struct ZipArchive: Sendable {
         return value
     }
 
+    /// 按块解压、边解边检查。声明的大小可以是假的，不按它预先分配内存；解出的数据超过声明大小就停止。
     static func inflate(_ compressed: Data, expectedSize: Int) throws(ConversionError) -> Data {
         guard expectedSize > 0 else { return Data() }
-        var output = Data(count: expectedSize)
-        let written = output.withUnsafeMutableBytes { destination in
-            compressed.withUnsafeBytes { source in
-                compression_decode_buffer(
-                    destination.bindMemory(to: UInt8.self).baseAddress!,
-                    expectedSize,
-                    source.bindMemory(to: UInt8.self).baseAddress!,
-                    compressed.count,
-                    nil,
-                    COMPRESSION_ZLIB
-                )
+        var output = Data()
+        do {
+            let filter = try OutputFilter(.decompress, using: .zlib) { chunk in
+                guard let chunk else { return }
+                guard output.count + chunk.count <= expectedSize else { throw ConversionError.corrupted("ZIP entry larger than declared") }
+                output.append(chunk)
             }
+            try filter.write(compressed)
+            try filter.finalize()
+        } catch {
+            throw ConversionError.corrupted("Could not decompress ZIP entry")
         }
-        guard written == expectedSize else {
+        guard output.count == expectedSize else {
             throw ConversionError.corrupted("Could not decompress ZIP entry")
         }
         return output
+    }
+}
+
+/// 一个压缩包累计可以解压的字节数。
+private final class DecompressionBudget: Sendable {
+    private let remaining: Mutex<Int>
+
+    init(limit: Int) {
+        remaining = Mutex(limit)
+    }
+
+    func consume(_ bytes: Int) -> Bool {
+        remaining.withLock { remaining in
+            guard bytes <= remaining else { return false }
+            remaining -= bytes
+            return true
+        }
+    }
+
+    func refund(_ bytes: Int) {
+        remaining.withLock { $0 += bytes }
     }
 }
 

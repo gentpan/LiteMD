@@ -2,28 +2,30 @@ import Foundation
 import LiteMDDomain
 import Markdown
 
-/// 把 AST 渲染为 Preview HTML，并在同一次遍历中收集 Outline、链接、图片等元数据。
+/// 把 AST 渲染为 Preview HTML，并在同一次遍历中收集 Outline。
 ///
 /// 块级元素带 `data-line`（源文件行号），用于 Split Preview 的块级滚动同步（spec §129）。
 struct HTMLRenderer: MarkupVisitor {
     typealias Result = Void
 
+    /// 双链与公式占位符。
+    let placeholders: ExtensionPlaceholders
     let lineStartOffsets: [Int]
     let fileURLPrefix: String?
     let includesSourceLines: Bool
     /// EPUB 需要合法的 XHTML：空元素自闭合，原始 HTML 作为文本转义输出。
     var xhtml = false
-    /// 双链与公式占位符。
-    var placeholders: ExtensionPlaceholders?
+    /// Preview 中双链是可点击的 `litemd-wiki:` 链接；导出与复制到别的应用时只保留显示文字。
+    var linksWikiTargets = true
+    /// 导出 EPUB 时把本地图片换成包内路径；返回 nil 时按普通规则处理。
+    var imageSource: ((String) -> String?)?
 
     private(set) var output = ""
     private(set) var headings: [HeadingItem] = []
-    private(set) var links: [LinkItem] = []
-    private(set) var images: [ImageItem] = []
-    private(set) var codeBlocks: [CodeBlockItem] = []
     private var slugger = HeadingSlugger()
 
-    init(lineStartOffsets: [Int], fileURLPrefix: String?, includesSourceLines: Bool = true) {
+    init(placeholders: ExtensionPlaceholders, lineStartOffsets: [Int], fileURLPrefix: String?, includesSourceLines: Bool = true) {
+        self.placeholders = placeholders
         self.lineStartOffsets = lineStartOffsets
         self.fileURLPrefix = fileURLPrefix
         self.includesSourceLines = includesSourceLines
@@ -48,7 +50,7 @@ struct HTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitHeading(_ heading: Heading) {
-        let title = placeholders?.plainText(heading.plainText) ?? heading.plainText
+        let title = placeholders.plainText(heading.plainText)
         let anchor = slugger.slug(for: title)
         let line = heading.range?.lowerBound.line ?? 1
         let offset = line - 1 < lineStartOffsets.count ? lineStartOffsets[line - 1] : 0
@@ -71,27 +73,28 @@ struct HTMLRenderer: MarkupVisitor {
         output += "</blockquote>\n"
     }
 
+    // 占位符出现在代码、原始 HTML、链接与图片地址里时（扩展语法扫描与 CommonMark 判断不一致，
+    // 或者本来就写在属性值里），一律先还原为原文，再转义或净化。
+
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-        let language = codeBlock.language?.split(separator: " ").first.map(String.init)
-        let startLine = codeBlock.range?.lowerBound.line ?? 1
-        let endLine = codeBlock.range?.upperBound.line ?? startLine
-        codeBlocks.append(CodeBlockItem(language: language, startLine: startLine, endLine: endLine))
+        let language = codeBlock.language.map(placeholders.source)?.split(separator: " ").first.map(String.init)
+        let code = placeholders.source(codeBlock.code)
 
         // Mermaid 图表与 ```math 公式块由 Preview 脚本渲染；导出为 XHTML 时保留源码。
         if !xhtml, let language = language?.lowercased() {
             if language == "mermaid" {
-                output += "<div class=\"mermaid-block\"\(lineAttribute(codeBlock))><pre class=\"mermaid-source\">\(HTMLEscaping.text(codeBlock.code))</pre></div>\n"
+                output += "<div class=\"mermaid-block\"\(lineAttribute(codeBlock))><pre class=\"mermaid-source\">\(HTMLEscaping.text(code))</pre></div>\n"
                 return
             }
             if language == "math" {
-                output += "<div class=\"math math-display\"\(lineAttribute(codeBlock))>\(HTMLEscaping.text(codeBlock.code))</div>\n"
+                output += "<div class=\"math math-display\"\(lineAttribute(codeBlock))>\(HTMLEscaping.text(code))</div>\n"
                 return
             }
         }
 
         let classAttribute = language.map { " class=\"language-\(HTMLEscaping.attribute($0))\"" } ?? ""
         output += "<pre\(lineAttribute(codeBlock))><code\(classAttribute)>"
-        output += HTMLEscaping.text(codeBlock.code)
+        output += HTMLEscaping.text(code)
         output += "</code></pre>\n"
     }
 
@@ -100,7 +103,8 @@ struct HTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitHTMLBlock(_ html: HTMLBlock) {
-        output += xhtml ? "<p>" + HTMLEscaping.text(html.rawHTML) + "</p>\n" : HTMLSanitizer.sanitize(html.rawHTML, fileURLPrefix: fileURLPrefix)
+        let raw = placeholders.source(html.rawHTML)
+        output += xhtml ? "<p>" + HTMLEscaping.text(raw) + "</p>\n" : HTMLSanitizer.sanitize(raw, fileURLPrefix: fileURLPrefix)
     }
 
     mutating func visitOrderedList(_ orderedList: OrderedList) {
@@ -192,10 +196,8 @@ struct HTMLRenderer: MarkupVisitor {
 
     mutating func visitText(_ text: Markdown.Text) {
         let escaped = Self.renderHighlights(HTMLEscaping.text(text.string))
-        if let placeholders {
-            output += placeholders.renderHTML(in: escaped, fileURLPrefix: fileURLPrefix, xhtml: xhtml)
-        } else {
-            output += escaped
+        output += placeholders.renderHTML(in: escaped, xhtml: xhtml, linksWikiTargets: linksWikiTargets) { source in
+            imageSourceAttribute(source)
         }
     }
 
@@ -249,24 +251,23 @@ struct HTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) {
-        output += "<code>" + HTMLEscaping.text(inlineCode.code) + "</code>"
+        output += "<code>" + HTMLEscaping.text(placeholders.source(inlineCode.code)) + "</code>"
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {
-        output += xhtml ? HTMLEscaping.text(inlineHTML.rawHTML) : HTMLSanitizer.sanitize(inlineHTML.rawHTML, fileURLPrefix: fileURLPrefix)
+        let raw = placeholders.source(inlineHTML.rawHTML)
+        output += xhtml ? HTMLEscaping.text(raw) : HTMLSanitizer.sanitize(raw, fileURLPrefix: fileURLPrefix)
     }
 
     mutating func visitLink(_ link: Link) {
-        let destination = link.destination ?? ""
-        let line = link.range?.lowerBound.line ?? 0
-        links.append(LinkItem(destination: destination, line: line))
+        let destination = placeholders.source(link.destination ?? "")
 
         guard let href = URLSanitizer.sanitizeLink(destination) else {
             defaultVisit(link)
             return
         }
         var attributes = " href=\"\(HTMLEscaping.attribute(href))\""
-        if let title = link.title, !title.isEmpty {
+        if let title = link.title.map(placeholders.source), !title.isEmpty {
             attributes += " title=\"\(HTMLEscaping.attribute(title))\""
         }
         output += "<a\(attributes)>"
@@ -275,24 +276,26 @@ struct HTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitImage(_ image: Image) {
-        let source = image.source ?? ""
-        let alt = placeholders?.plainText(image.plainText) ?? image.plainText
-        let line = image.range?.lowerBound.line ?? 0
-        images.append(ImageItem(source: source, alt: alt, line: line))
+        let source = placeholders.source(image.source ?? "")
+        let alt = placeholders.plainText(image.plainText)
 
-        guard let src = URLSanitizer.sanitizeResource(source, fileURLPrefix: fileURLPrefix) else {
+        guard let src = imageSourceAttribute(source) else {
             output += HTMLEscaping.text(alt)
             return
         }
         var attributes = " src=\"\(HTMLEscaping.attribute(src))\" alt=\"\(HTMLEscaping.attribute(alt))\""
-        if let title = image.title, !title.isEmpty {
+        if let title = image.title.map(placeholders.source), !title.isEmpty {
             attributes += " title=\"\(HTMLEscaping.attribute(title))\""
         }
         output += xhtml ? "<img\(attributes)/>" : "<img\(attributes) loading=\"lazy\">"
     }
 
     mutating func visitSymbolLink(_ symbolLink: SymbolLink) {
-        output += "<code>" + HTMLEscaping.text(symbolLink.destination ?? "") + "</code>"
+        output += "<code>" + HTMLEscaping.text(placeholders.source(symbolLink.destination ?? "")) + "</code>"
+    }
+
+    private func imageSourceAttribute(_ source: String) -> String? {
+        imageSource?(source) ?? URLSanitizer.sanitizeResource(source, fileURLPrefix: fileURLPrefix)
     }
 }
 

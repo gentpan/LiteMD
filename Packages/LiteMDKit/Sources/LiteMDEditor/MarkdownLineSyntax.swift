@@ -1,4 +1,5 @@
 import Foundation
+import LiteMDDomain
 
 /// 行级 Markdown 语法识别，供编辑命令使用。只识别 `\n` 换行（正文已统一 LF）。
 public enum MarkdownLineSyntax {
@@ -133,50 +134,23 @@ public enum MarkdownLineSyntax {
         var buffer = [UInt16](repeating: 0, count: length)
         text.getCharacters(&buffer, range: NSRange(location: 0, length: length))
 
-        var openFence: (char: UInt16, count: Int)?
+        var openFence: MarkdownFence?
         var lineStart = 0
         while lineStart < length {
             var lineEnd = lineStart
             while lineEnd < length, buffer[lineEnd] != 0x0A { lineEnd += 1 }
             // 只处理完整的行（光标所在行不算围栏判断的一部分）。
             guard lineEnd < length else { break }
-            if let fence = fenceMarker(buffer, lineStart, lineEnd) {
+            if let fence = MarkdownFence.parse(buffer, lineStart, lineEnd) {
                 if let open = openFence {
-                    if fence.char == open.char, fence.count >= open.count, fence.infoIsEmpty {
-                        openFence = nil
-                    }
+                    if open.isClosed(by: fence) { openFence = nil }
                 } else {
-                    openFence = (fence.char, fence.count)
+                    openFence = fence
                 }
             }
             lineStart = lineEnd + 1
         }
         return openFence != nil
-    }
-
-    static func fenceMarker(_ units: [UInt16], _ start: Int, _ end: Int) -> (char: UInt16, count: Int, infoIsEmpty: Bool)? {
-        var index = start
-        var spaces = 0
-        while index < end, units[index] == 0x20, spaces < 3 {
-            index += 1
-            spaces += 1
-        }
-        guard index < end, units[index] == 0x60 || units[index] == 0x7E else { return nil }
-        let char = units[index]
-        var count = 0
-        while index < end, units[index] == char {
-            count += 1
-            index += 1
-        }
-        guard count >= 3 else { return nil }
-        var infoIsEmpty = true
-        while index < end {
-            if !isBlank(units[index]) { infoIsEmpty = false }
-            // 反引号围栏的 info string 不能包含反引号。
-            if char == 0x60, units[index] == 0x60 { return nil }
-            index += 1
-        }
-        return (char, count, infoIsEmpty)
     }
 
     @inline(__always)

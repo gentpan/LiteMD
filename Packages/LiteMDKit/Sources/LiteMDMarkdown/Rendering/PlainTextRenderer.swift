@@ -1,14 +1,20 @@
 import Foundation
+import LiteMDDomain
 import Markdown
 
 /// 把 Markdown 转为纯文本（右键 “Copy As › Plain Text”）：去掉语法标记，保留段落与列表结构。
 struct PlainTextRenderer: MarkupVisitor {
     typealias Result = Void
 
+    let placeholders: ExtensionPlaceholders
     private(set) var output = ""
     private var listDepth = 0
     private var orderedCounters: [UInt?] = []
     private var isAtListItemStart = false
+
+    init(placeholders: ExtensionPlaceholders) {
+        self.placeholders = placeholders
+    }
 
     mutating func defaultVisit(_ markup: Markup) {
         for child in markup.children {
@@ -45,7 +51,7 @@ struct PlainTextRenderer: MarkupVisitor {
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
         startBlock()
-        var code = codeBlock.code
+        var code = placeholders.source(codeBlock.code)
         while code.hasSuffix("\n") { code.removeLast() }
         output += code
     }
@@ -95,14 +101,14 @@ struct PlainTextRenderer: MarkupVisitor {
     mutating func visitTable(_ table: Table) {
         startBlock()
         var rows: [String] = []
-        var head = PlainTextRenderer()
+        var head = PlainTextRenderer(placeholders: placeholders)
         rows.append(table.head.cells.map { cell -> String in
             head.output = ""
             head.defaultVisit(cell)
             return head.output
         }.joined(separator: "\t"))
         for row in table.body.rows {
-            var renderer = PlainTextRenderer()
+            var renderer = PlainTextRenderer(placeholders: placeholders)
             rows.append(row.cells.map { cell -> String in
                 renderer.output = ""
                 renderer.defaultVisit(cell)
@@ -113,13 +119,14 @@ struct PlainTextRenderer: MarkupVisitor {
     }
 
     mutating func visitText(_ text: Markdown.Text) {
-        output += HTMLRenderer.renderHighlights(text.string)
+        let stripped = HTMLRenderer.renderHighlights(text.string)
             .replacingOccurrences(of: "<mark>", with: "")
             .replacingOccurrences(of: "</mark>", with: "")
+        output += placeholders.plainText(stripped)
     }
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) {
-        output += inlineCode.code
+        output += placeholders.source(inlineCode.code)
     }
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) {
@@ -131,42 +138,50 @@ struct PlainTextRenderer: MarkupVisitor {
     }
 
     mutating func visitImage(_ image: Image) {
-        output += image.plainText
+        output += placeholders.plainText(image.plainText)
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {}
 
     mutating func visitSymbolLink(_ symbolLink: SymbolLink) {
-        output += symbolLink.destination ?? ""
+        output += placeholders.source(symbolLink.destination ?? "")
     }
 }
 
 extension MarkdownParser {
-    /// 去掉 Markdown 语法后的纯文本。
+    /// 去掉 Markdown 语法后的纯文本。双链保留显示文字，公式保留源码。
     public func plainText(from markdown: String) -> String {
-        let frontMatter = FrontMatter.split(markdown)
-        let document = Document(parsing: frontMatter.body, options: [.disableSmartOpts])
-        var renderer = PlainTextRenderer()
-        renderer.visit(document)
+        let prepared = Self.prepare(markdown)
+        var renderer = PlainTextRenderer(placeholders: prepared.placeholders)
+        renderer.visit(prepared.document)
         return renderer.output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// EPUB 等场景使用的 XHTML 片段。
-    public func xhtmlFragment(from markdown: String) -> String {
-        let frontMatter = FrontMatter.split(markdown)
-        let document = Document(parsing: frontMatter.body, options: [.disableSmartOpts])
-        var renderer = HTMLRenderer(lineStartOffsets: [0], fileURLPrefix: nil, includesSourceLines: false)
+    /// EPUB 等场景使用的 XHTML 片段。标题锚点与正文 `id` 出自同一次渲染，目录可以直接引用。
+    ///
+    /// - Parameter imageSource: 把图片地址换成包内路径；返回 nil 时按普通规则处理。
+    public func xhtmlFragment(from markdown: String, imageSource: ((String) -> String?)? = nil) -> RenderedFragment {
+        let prepared = Self.prepare(markdown)
+        var renderer = HTMLRenderer(placeholders: prepared.placeholders, lineStartOffsets: [0], fileURLPrefix: nil, includesSourceLines: false)
         renderer.xhtml = true
-        renderer.visit(document)
-        return renderer.output
+        renderer.linksWikiTargets = false
+        renderer.imageSource = imageSource
+        renderer.visit(prepared.document)
+        return RenderedFragment(html: renderer.output, headings: renderer.headings)
     }
 
-    /// 可粘贴到其他应用的 HTML 片段（已净化，不含 `data-line`）。
+    /// 可粘贴到其他应用的 HTML 片段（已净化，不含 `data-line`）。双链只保留显示文字。
     public func htmlFragment(from markdown: String) -> String {
-        let frontMatter = FrontMatter.split(markdown)
-        let document = Document(parsing: frontMatter.body, options: [.disableSmartOpts])
-        var renderer = HTMLRenderer(lineStartOffsets: [0], fileURLPrefix: nil, includesSourceLines: false)
-        renderer.visit(document)
+        let prepared = Self.prepare(markdown)
+        var renderer = HTMLRenderer(placeholders: prepared.placeholders, lineStartOffsets: [0], fileURLPrefix: nil, includesSourceLines: false)
+        renderer.linksWikiTargets = false
+        renderer.visit(prepared.document)
         return renderer.output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+/// 导出用的 HTML 片段与其中的标题。
+public struct RenderedFragment: Sendable {
+    public var html: String
+    public var headings: [HeadingItem]
 }

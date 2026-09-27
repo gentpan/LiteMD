@@ -196,12 +196,14 @@ public enum MarkdownComposer {
         return result
     }
 
-    /// 段落开头会被误认为 Markdown 语法的字符需要转义。
+    /// 段落开头会被误认为 Markdown 语法的字符需要转义（`line` 已经过 `escapeInline`）。
     public static func escapeLineStart(_ line: String) -> String {
         guard let first = line.first else { return line }
-        if "#>-+=".contains(first) { return "\\" + line }
-        let digits = line.prefix(while: \.isNumber)
-        if !digits.isEmpty, line.dropFirst(digits.count).first == "." {
+        // `~~~` 会开启代码块，吞掉后面所有内容。
+        if "#>-+=~".contains(first) { return "\\" + line }
+        // `1.` 与 `1)` 都是有序列表。
+        let digits = line.prefix { $0.isASCII && $0.isNumber }
+        if !digits.isEmpty, let delimiter = line.dropFirst(digits.count).first, delimiter == "." || delimiter == ")" {
             return digits + "\\" + line.dropFirst(digits.count)
         }
         return line
