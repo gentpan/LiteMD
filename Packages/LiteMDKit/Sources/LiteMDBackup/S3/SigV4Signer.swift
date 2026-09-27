@@ -1,16 +1,15 @@
 import CryptoKit
 import Foundation
+import LiteMDDomain
 
 /// S3 访问凭据。Secret 只在内存中使用，持久化由平台层存入钥匙串。
 public struct S3Credentials: Sendable, Equatable {
     public var accessKeyID: String
     public var secretAccessKey: String
-    public var sessionToken: String?
 
-    public init(accessKeyID: String, secretAccessKey: String, sessionToken: String? = nil) {
+    public init(accessKeyID: String, secretAccessKey: String) {
         self.accessKeyID = accessKeyID
         self.secretAccessKey = secretAccessKey
-        self.sessionToken = sessionToken
     }
 }
 
@@ -30,14 +29,11 @@ public struct SigV4Signer: Sendable {
         self.region = region
     }
 
-    /// 对请求签名：补充 `x-amz-date`、`x-amz-content-sha256`（及会话令牌），写入 `Authorization`。
+    /// 对请求签名：补充 `x-amz-date`、`x-amz-content-sha256`，写入 `Authorization`。
     public func sign(_ request: inout URLRequest, payloadHash: String, date: Date) {
         let amzDate = Self.amzDate(date)
         request.setValue(amzDate, forHTTPHeaderField: "x-amz-date")
         request.setValue(payloadHash, forHTTPHeaderField: "x-amz-content-sha256")
-        if let token = credentials.sessionToken {
-            request.setValue(token, forHTTPHeaderField: "x-amz-security-token")
-        }
 
         let parts = canonicalRequest(request, payloadHash: payloadHash)
         let scope = "\(amzDate.prefix(8))/\(region)/\(service)/aws4_request"
@@ -45,10 +41,10 @@ public struct SigV4Signer: Sendable {
             "AWS4-HMAC-SHA256",
             amzDate,
             scope,
-            Self.hex(SHA256.hash(data: Data(parts.request.utf8))),
+            SHA256.hash(data: Data(parts.request.utf8)).hexString,
         ].joined(separator: "\n")
 
-        let signature = Self.hex(HMAC<SHA256>.authenticationCode(for: Data(stringToSign.utf8), using: signingKey(dateStamp: String(amzDate.prefix(8)))))
+        let signature = HMAC<SHA256>.authenticationCode(for: Data(stringToSign.utf8), using: signingKey(dateStamp: String(amzDate.prefix(8)))).hexString
         request.setValue(
             "AWS4-HMAC-SHA256 Credential=\(credentials.accessKeyID)/\(scope),SignedHeaders=\(parts.signedHeaders),Signature=\(signature)",
             forHTTPHeaderField: "Authorization"
@@ -122,10 +118,6 @@ public struct SigV4Signer: Sendable {
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         return formatter.string(from: date)
-    }
-
-    static func hex<D: Sequence>(_ digest: D) -> String where D.Element == UInt8 {
-        digest.map { String(format: "%02x", $0) }.joined()
     }
 
     /// S3 对象键与查询参数的 URI 编码：只保留 RFC 3986 非保留字符。

@@ -80,7 +80,7 @@ Requires macOS 15 or later. Universal binary — Apple silicon and Intel.
 
 ## Build from source
 
-You need Xcode 16 or later and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+You need Xcode 26 or later (Swift 6.2) and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 (`brew install xcodegen`). The Xcode project is generated from `project.yml` and
 is not checked in.
 

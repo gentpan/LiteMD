@@ -27,13 +27,11 @@
 
   --color-primary: #2563eb;
   --color-primary-strong: #1d4ed8;   /* hover：主色压暗一档 */
-  --color-primary-subtle: #dbeaff;
   --color-on-primary: #ffffff;
 
   --color-success: #12853c;
   --color-warning: #b45309;
   --color-error: #d0423b;
-  --color-highlight: #fef3c7;
 
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -51,7 +49,6 @@
   --text-lg: 20px;
   --text-xl: 24px;
   --text-2xl: 32px;
-  --text-3xl: 40px;
   --text-4xl: 56px;
 
   /* ---- 间距：4px 栅格 ---- */
@@ -91,13 +88,11 @@
 
     --color-primary: #60a5fa;
     --color-primary-strong: #3b8ef0;
-    --color-primary-subtle: #1e3a5f;
     --color-on-primary: #10131a;
 
     --color-success: #4ade80;
     --color-warning: #e5c07b;
     --color-error: #f87171;
-    --color-highlight: #5c4813;
 
     --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);
@@ -118,13 +113,11 @@
 
   --color-primary: #60a5fa;
   --color-primary-strong: #3b8ef0;
-  --color-primary-subtle: #1e3a5f;
   --color-on-primary: #10131a;
 
   --color-success: #4ade80;
   --color-warning: #e5c07b;
   --color-error: #f87171;
-  --color-highlight: #5c4813;
 
   --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.45);

@@ -24,7 +24,7 @@ struct SigV4Tests {
         signer.sign(&request, payloadHash: SigV4Signer.emptyPayloadHash, date: date)
 
         let canonical = signer.canonicalRequest(request, payloadHash: SigV4Signer.emptyPayloadHash)
-        #expect(SigV4Signer.hex(SHA256.hash(data: Data(canonical.request.utf8))) == "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972")
+        #expect(SHA256.hash(data: Data(canonical.request.utf8)).hexString == "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972")
         #expect(canonical.signedHeaders == "host;range;x-amz-content-sha256;x-amz-date")
         #expect(signature(request) == "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41")
     }
@@ -35,7 +35,7 @@ struct SigV4Tests {
         request.httpMethod = "PUT"
         request.setValue("Fri, 24 May 2013 00:00:00 GMT", forHTTPHeaderField: "Date")
         request.setValue("REDUCED_REDUNDANCY", forHTTPHeaderField: "x-amz-storage-class")
-        let payloadHash = SigV4Signer.hex(SHA256.hash(data: body))
+        let payloadHash = SHA256.hash(data: body).hexString
         #expect(payloadHash == "44ce7dd67c959e0d3524ffac1771dfbba87d2b6b4b4e99e42034a8b803f8b072")
         signer.sign(&request, payloadHash: payloadHash, date: date)
         #expect(signature(request) == "98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd")
@@ -113,6 +113,10 @@ final class MockS3: HTTPTransport, @unchecked Sendable {
     private var objects: [String: Data] = [:]
     private var failures: [(method: String, status: Int, remaining: Int)] = []
     private(set) var requests: [String] = []
+    /// 列举结果声称被截断，却不给续页令牌（只支持 V1 列举的兼容服务会这样）。
+    var truncatesListingWithoutToken = false
+    /// 下载时返回的内容与 ETag 不符。
+    var corruptsDownloads = false
 
     var keys: [String] { lock.withLock { objects.keys.sorted() } }
 
@@ -150,7 +154,7 @@ final class MockS3: HTTPTransport, @unchecked Sendable {
             let md5 = Data(Insecure.MD5.hash(data: body)).base64EncodedString()
             precondition(request.value(forHTTPHeaderField: "Content-MD5") == md5)
             lock.withLock { objects[key] = body }
-            let eTag = "\"" + Insecure.MD5.hash(data: body).map { String(format: "%02x", $0) }.joined() + "\""
+            let eTag = "\"" + Insecure.MD5.hash(data: body).hexString + "\""
             return (Data(), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["ETag": eTag])!)
         case "DELETE":
             lock.withLock { objects[key] = nil }
@@ -161,7 +165,9 @@ final class MockS3: HTTPTransport, @unchecked Sendable {
                 guard let data = lock.withLock({ objects[key] }) else {
                     return (Data("<Error><Code>NoSuchKey</Code></Error>".utf8), HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!)
                 }
-                return (data, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                let eTag = "\"" + Insecure.MD5.hash(data: data).hexString + "\""
+                let body = corruptsDownloads ? data + Data("x".utf8) : data
+                return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["ETag": eTag])!)
             }
             let prefix = queryItems.first { $0.name == "prefix" }?.value ?? ""
             let delimiter = queryItems.first { $0.name == "delimiter" }?.value
@@ -175,11 +181,11 @@ final class MockS3: HTTPTransport, @unchecked Sendable {
                     if !folders.contains(folder) { folders.append(folder) }
                     continue
                 }
-                let eTag = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
-                contents += "<Contents><Key>\(key)</Key><ETag>&quot;\(eTag)&quot;</ETag><Size>\(data.count)</Size></Contents>"
+                contents += "<Contents><Key>\(key)</Key><ETag>&quot;\(Insecure.MD5.hash(data: data).hexString)&quot;</ETag></Contents>"
             }
             let prefixes = folders.map { "<CommonPrefixes><Prefix>\($0)</Prefix></CommonPrefixes>" }.joined()
-            let xml = "<ListBucketResult><IsTruncated>false</IsTruncated>\(contents)\(prefixes)</ListBucketResult>"
+            let truncated = truncatesListingWithoutToken ? "true" : "false"
+            let xml = "<ListBucketResult><IsTruncated>\(truncated)</IsTruncated>\(contents)\(prefixes)</ListBucketResult>"
             return (Data(xml.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         }
     }
@@ -313,6 +319,36 @@ struct BackupEngineTests {
         #expect(denied.requests.filter { $0 == "PUT" }.count == 1)
     }
 
+    @Test func refusesToMirrorDeletionsWhenASubfolderIsUnreadable() async throws {
+        let workspace = Workspace()
+        workspace.write("keep.md", "1")
+        workspace.write("private/secret.md", "2")
+        let s3 = MockS3()
+        let engine = makeEngine(s3, manifests: MemoryManifestStore())
+        let folder = BackupEngine.remoteFolder(for: workspace.url, configuration: configuration)
+        _ = try await engine.run(workspace: workspace.url, options: BackupOptions())
+
+        // 子目录暂时读不了（权限、网络盘抖动）：里面的文件看起来像被删了，但不能据此删远端。
+        let locked = workspace.url.appendingPathComponent("private")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+
+        let report = try await engine.run(workspace: workspace.url, options: BackupOptions(mirrorDeletions: true))
+        #expect(report.deleted == 0)
+        #expect(report.failures.map(\.path) == ["private"])
+        #expect(s3.keys.contains(folder + "private/secret.md"))
+    }
+
+    @Test func truncatedListingWithoutContinuationTokenFails() async {
+        let workspace = Workspace()
+        workspace.write("a.md", "a")
+        let s3 = MockS3()
+        s3.truncatesListingWithoutToken = true
+        await #expect(throws: S3Error.invalidResponse) {
+            try await makeEngine(s3, manifests: MemoryManifestStore()).run(workspace: workspace.url, options: BackupOptions(mirrorDeletions: true))
+        }
+    }
+
     @Test func listingErrorsAbortTheRun() async {
         let workspace = Workspace()
         workspace.write("a.md", "a")
@@ -361,6 +397,7 @@ struct RestoreEngineTests {
         s3.seed("LiteMD/Notes-abcdef/ok.md", Data("ok".utf8))
         s3.seed("LiteMD/Notes-abcdef/../../evil.md", Data("evil".utf8))
         s3.seed("LiteMD/Notes-abcdef/folder/", Data())
+        s3.seed("LiteMD/Notes-abcdef/", Data())
         let client = S3Client(configuration: configuration, secretAccessKey: "secret", transport: s3)
         let target = Workspace()
         let destination = target.url.appendingPathComponent("Restored")
@@ -370,6 +407,20 @@ struct RestoreEngineTests {
         #expect(report.failures.map(\.message) == ["Unsafe path"])
         #expect(!FileManager.default.fileExists(atPath: target.url.appendingPathComponent("evil.md").path))
         #expect(!FileManager.default.fileExists(atPath: target.url.deletingLastPathComponent().appendingPathComponent("evil.md").path))
+    }
+
+    @Test func rejectsDownloadsThatDoNotMatchTheirChecksum() async throws {
+        let s3 = MockS3()
+        s3.seed("LiteMD/Notes-abcdef/a.md", Data("a".utf8))
+        s3.corruptsDownloads = true
+        let client = S3Client(configuration: configuration, secretAccessKey: "secret", transport: s3)
+        let target = Workspace()
+        let destination = target.url.appendingPathComponent("Restored")
+
+        let report = try await RestoreEngine(client: client).restore(folder: RemoteBackupFolder(prefix: "LiteMD/Notes-abcdef/", name: "Notes"), to: destination)
+        #expect(report.restored == 0)
+        #expect(report.failures.map(\.message) == ["Checksum mismatch"])
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("a.md").path))
     }
 
     @Test func displayNameStripsHashSuffixOnly() {

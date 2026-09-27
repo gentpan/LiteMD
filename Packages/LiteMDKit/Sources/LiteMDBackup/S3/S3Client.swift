@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import LiteMDDomain
 
 /// 备份目标：任何兼容 S3 API 的对象存储（AWS S3、Cloudflare R2、MinIO、阿里云 OSS、腾讯云 COS 等）。
 public struct S3Configuration: Codable, Sendable, Equatable {
@@ -68,12 +69,10 @@ public struct S3Object: Equatable, Sendable {
     public var key: String
     /// 去掉引号的 ETag。单块上传且未使用 KMS 加密时等于内容的 MD5。
     public var eTag: String
-    public var size: Int64
 
-    public init(key: String, eTag: String, size: Int64) {
+    public init(key: String, eTag: String) {
         self.key = key
         self.eTag = eTag
-        self.size = size
     }
 }
 
@@ -143,14 +142,7 @@ public struct S3Client: Sendable {
     }
 
     public func listObjects(prefix: String) async throws(S3Error) -> [S3Object] {
-        var objects: [S3Object] = []
-        var token: String?
-        repeat {
-            let page = try await listPage(prefix: prefix, continuationToken: token, maxKeys: 1000)
-            objects.append(contentsOf: page.objects)
-            token = page.nextToken
-        } while token != nil
-        return objects
+        try await listAll(prefix: prefix, delimiter: nil).objects
     }
 
     @discardableResult
@@ -160,31 +152,26 @@ public struct S3Client: Sendable {
         request.httpBody = data
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.setValue(Data(Insecure.MD5.hash(data: data)).base64EncodedString(), forHTTPHeaderField: "Content-MD5")
-        let (_, response) = try await perform(request, payloadHash: SigV4Signer.hex(SHA256.hash(data: data)))
+        let (_, response) = try await perform(request, payloadHash: SHA256.hash(data: data).hexString)
         return (response.value(forHTTPHeaderField: "ETag") ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "\""))
     }
 
-    public func getObject(key: String) async throws(S3Error) -> Data {
+    /// 下载对象。`contentMD5` 是可以用来校验内容的 MD5：只有单块上传、且没有用 SSE-KMS / SSE-C 加密时，
+    /// ETag 才等于内容的 MD5，其余情况为 nil。
+    public func getObject(key: String) async throws(S3Error) -> (data: Data, contentMD5: String?) {
         var request = URLRequest(url: try configuration.url(key: key))
         request.httpMethod = "GET"
-        return try await perform(request, payloadHash: SigV4Signer.emptyPayloadHash).0
+        let (data, response) = try await perform(request, payloadHash: SigV4Signer.emptyPayloadHash)
+        let eTag = (response.value(forHTTPHeaderField: "ETag") ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "\" ")).lowercased()
+        let encryption = response.value(forHTTPHeaderField: "x-amz-server-side-encryption")?.lowercased() ?? ""
+        let customerKey = response.value(forHTTPHeaderField: "x-amz-server-side-encryption-customer-algorithm") != nil
+        let isMD5 = eTag.count == 32 && eTag.allSatisfy(\.isHexDigit) && !encryption.hasPrefix("aws:kms") && !customerKey
+        return (data, isMD5 ? eTag : nil)
     }
 
     /// 列出前缀下一层的“目录”（CommonPrefixes），例如各个 Workspace 的备份目录。
     public func listFolders(prefix: String) async throws(S3Error) -> [String] {
-        var folders: [String] = []
-        var token: String?
-        repeat {
-            var query = [("delimiter", "/"), ("list-type", "2"), ("max-keys", "1000"), ("prefix", prefix)]
-            if let token { query.append(("continuation-token", token)) }
-            var request = URLRequest(url: try configuration.url(key: nil, query: query))
-            request.httpMethod = "GET"
-            let (data, _) = try await perform(request, payloadHash: SigV4Signer.emptyPayloadHash)
-            let page = try ListBucketParser.parse(data)
-            folders.append(contentsOf: page.commonPrefixes)
-            token = page.nextToken
-        } while token != nil
-        return folders
+        try await listAll(prefix: prefix, delimiter: "/").commonPrefixes
     }
 
     public func deleteObject(key: String) async throws(S3Error) {
@@ -193,14 +180,33 @@ public struct S3Client: Sendable {
         _ = try await perform(request, payloadHash: SigV4Signer.emptyPayloadHash)
     }
 
-    private func listPage(prefix: String, continuationToken: String?, maxKeys: Int) async throws(S3Error) -> (objects: [S3Object], nextToken: String?) {
+    /// 逐页列举到结束。服务端声称还有下一页却不给续页令牌，或者反复返回同一个令牌时报错，
+    /// 不能静默截断（恢复会漏文件、镜像删除会误删），也不能无限循环。
+    private func listAll(prefix: String, delimiter: String?) async throws(S3Error) -> ListBucketParser.Page {
+        var result = ListBucketParser.Page()
+        var token: String?
+        var seenTokens: Set<String> = []
+        repeat {
+            let page = try await listPage(prefix: prefix, delimiter: delimiter, continuationToken: token, maxKeys: 1000)
+            result.objects += page.objects
+            result.commonPrefixes += page.commonPrefixes
+            guard page.isTruncated else { break }
+            guard let next = page.nextToken, !next.isEmpty, seenTokens.insert(next).inserted else {
+                throw S3Error.invalidResponse
+            }
+            token = next
+        } while true
+        return result
+    }
+
+    private func listPage(prefix: String, delimiter: String? = nil, continuationToken: String?, maxKeys: Int) async throws(S3Error) -> ListBucketParser.Page {
         var query = [("list-type", "2"), ("max-keys", String(maxKeys)), ("prefix", prefix)]
+        if let delimiter { query.append(("delimiter", delimiter)) }
         if let continuationToken { query.append(("continuation-token", continuationToken)) }
         var request = URLRequest(url: try configuration.url(key: nil, query: query))
         request.httpMethod = "GET"
         let (data, _) = try await perform(request, payloadHash: SigV4Signer.emptyPayloadHash)
-        let page = try ListBucketParser.parse(data)
-        return (page.objects, page.nextToken)
+        return try ListBucketParser.parse(data)
     }
 
     /// 发送请求；网络错误、限流与服务端错误最多重试 3 次（指数退避）。
@@ -227,22 +233,25 @@ public struct S3Client: Sendable {
 // MARK: - XML
 
 private final class ListBucketParser: NSObject, XMLParserDelegate {
-    private var objects: [S3Object] = []
-    private var commonPrefixes: [String] = []
-    private var nextToken: String?
-    private var isTruncated = false
+    struct Page {
+        var objects: [S3Object] = []
+        var commonPrefixes: [String] = []
+        var isTruncated = false
+        var nextToken: String?
+    }
+
+    private var page = Page()
     private var isInCommonPrefixes = false
     private var text = ""
     private var key = ""
     private var eTag = ""
-    private var size: Int64 = 0
 
-    static func parse(_ data: Data) throws(S3Error) -> (objects: [S3Object], commonPrefixes: [String], nextToken: String?) {
+    static func parse(_ data: Data) throws(S3Error) -> Page {
         let delegate = ListBucketParser()
         let parser = XMLParser(data: data)
         parser.delegate = delegate
         guard parser.parse() else { throw S3Error.invalidResponse }
-        return (delegate.objects, delegate.commonPrefixes, delegate.isTruncated ? delegate.nextToken : nil)
+        return delegate.page
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?, attributes: [String: String] = [:]) {
@@ -250,7 +259,6 @@ private final class ListBucketParser: NSObject, XMLParserDelegate {
         if elementName == "Contents" {
             key = ""
             eTag = ""
-            size = 0
         }
         if elementName == "CommonPrefixes" { isInCommonPrefixes = true }
     }
@@ -263,12 +271,11 @@ private final class ListBucketParser: NSObject, XMLParserDelegate {
         switch elementName {
         case "Key": key = text
         case "ETag": eTag = text.trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
-        case "Size": size = Int64(text) ?? 0
-        case "Prefix" where isInCommonPrefixes: commonPrefixes.append(text)
+        case "Prefix" where isInCommonPrefixes: page.commonPrefixes.append(text)
         case "CommonPrefixes": isInCommonPrefixes = false
-        case "Contents": objects.append(S3Object(key: key, eTag: eTag, size: size))
-        case "IsTruncated": isTruncated = text == "true"
-        case "NextContinuationToken": nextToken = text
+        case "Contents": page.objects.append(S3Object(key: key, eTag: eTag))
+        case "IsTruncated": page.isTruncated = text == "true"
+        case "NextContinuationToken": page.nextToken = text
         default: break
         }
     }

@@ -7,7 +7,7 @@ import LiteMDDomain
 /// 安全规则：
 /// - 只读取本地文件，绝不修改或删除本地内容；
 /// - 默认不删除远端对象；开启“镜像删除”后才删除本地已不存在的远端对象；
-/// - 本地一个文件都没有枚举到时（例如外置磁盘未挂载），拒绝执行任何远端删除。
+/// - 本地一个文件都没有枚举到时（例如外置磁盘未挂载），或者有子目录读不了时，拒绝执行任何远端删除。
 public struct BackupOptions: Sendable, Equatable {
     public var mirrorDeletions: Bool
     public var ignoreRules: WorkspaceIgnoreRules
@@ -51,10 +51,7 @@ public struct BackupReport: Codable, Sendable, Equatable {
     public var unchanged: Int = 0
     public var deleted: Int = 0
     public var skippedTooLarge: Int = 0
-    public var bytesUploaded: Int64 = 0
     public var failures: [BackupFailure] = []
-    public var remoteLocation: String = ""
-    public var startedAt = Date()
     public var finishedAt = Date()
 
     public var succeeded: Bool { failures.isEmpty }
@@ -65,7 +62,6 @@ public struct BackupManifest: Codable, Sendable, Equatable {
     public struct Entry: Codable, Sendable, Equatable {
         public var size: Int64
         public var modifiedAtNanoseconds: Int64
-        public var md5: String
         public var remoteETag: String
     }
 
@@ -118,7 +114,7 @@ public struct BackupEngine: Sendable {
     /// 加上路径哈希，避免两个同名文件夹互相覆盖备份。
     public static func remoteFolder(for workspace: URL, configuration: S3Configuration) -> String {
         let path = workspace.standardizedFileURL.path
-        let hash = SHA256.hash(data: Data(path.utf8)).prefix(3).map { String(format: "%02x", $0) }.joined()
+        let hash = SHA256.hash(data: Data(path.utf8)).prefix(3).hexString
         let name = workspace.lastPathComponent.isEmpty ? "Workspace" : workspace.lastPathComponent
         return configuration.normalizedPrefix + name + "-" + hash + "/"
     }
@@ -129,12 +125,11 @@ public struct BackupEngine: Sendable {
         progress: @escaping @Sendable (BackupProgress) -> Void = { _ in }
     ) async throws(S3Error) -> BackupReport {
         var report = BackupReport()
-        report.startedAt = Date()
         let remoteFolder = Self.remoteFolder(for: workspace, configuration: client.configuration)
-        report.remoteLocation = "\(client.configuration.bucket)/\(remoteFolder)"
         let manifestKey = Self.manifestKey(bucket: client.configuration.bucket, endpoint: client.configuration.endpoint, folder: remoteFolder)
 
-        let localFiles = Self.enumerate(workspace, options: options)
+        let (localFiles, unreadable) = Self.enumerate(workspace, options: options)
+        report.failures += unreadable
         let remoteObjects = Dictionary(
             try await client.listObjects(prefix: remoteFolder).map { ($0.key, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -184,9 +179,8 @@ public struct BackupEngine: Sendable {
                 running -= 1
                 completed += 1
                 switch outcome.result {
-                case .uploaded(let entry, let bytes):
+                case .uploaded(let entry):
                     report.uploaded += 1
-                    report.bytesUploaded += bytes
                     manifest.entries[outcome.file.relativePath] = entry
                 case .unchanged(let entry):
                     report.unchanged += 1
@@ -203,9 +197,9 @@ public struct BackupEngine: Sendable {
             }
         }
 
-        // 3. 镜像删除（默认关闭）。
+        // 3. 镜像删除（默认关闭）。有子目录读不了时，那里的文件看起来都像“本地已删除”，整轮跳过。
         let localPaths = Set(localFiles.map(\.relativePath))
-        if options.mirrorDeletions, !localFiles.isEmpty {
+        if options.mirrorDeletions, !localFiles.isEmpty, unreadable.isEmpty {
             for (key, _) in remoteObjects where key.hasPrefix(remoteFolder) {
                 let relative = String(key.dropFirst(remoteFolder.count))
                 guard !localPaths.contains(relative) else { continue }
@@ -236,39 +230,55 @@ public struct BackupEngine: Sendable {
         var modifiedAtNanoseconds: Int64
     }
 
-    static func enumerate(_ workspace: URL, options: BackupOptions) -> [LocalFile] {
+    /// 枚举本地文件。读不了的目录或文件记为失败返回：它们不在结果里，不能被当成“本地已删除”。
+    static func enumerate(_ workspace: URL, options: BackupOptions) -> (files: [LocalFile], unreadable: [BackupFailure]) {
         let root = workspace.standardizedFileURL
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey, .contentModificationDateKey, .isSymbolicLinkKey]
         var enumeratorOptions: FileManager.DirectoryEnumerationOptions = [.skipsPackageDescendants]
         if !options.ignoreRules.showHiddenFiles { enumeratorOptions.insert(.skipsHiddenFiles) }
-        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: enumeratorOptions) else { return [] }
+
+        func relativePath(of url: URL) -> String {
+            String(url.standardizedFileURL.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+        // 错误回调在 nextObject() 里同步调用。
+        var unreadable: [BackupFailure] = []
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: enumeratorOptions, errorHandler: { url, error in
+            unreadable.append(BackupFailure(path: relativePath(of: url), message: error.localizedDescription))
+            return true
+        }) else {
+            return ([], [BackupFailure(path: "", message: "Could not read \(root.path)")])
+        }
 
         var files: [LocalFile] = []
         while let item = enumerator.nextObject() as? URL {
-            let values = try? item.resourceValues(forKeys: Set(keys))
-            if options.ignoreRules.isIgnored(name: item.lastPathComponent) {
-                if values?.isDirectory == true { enumerator.skipDescendants() }
+            let values: URLResourceValues
+            do {
+                values = try item.resourceValues(forKeys: Set(keys))
+            } catch {
+                unreadable.append(BackupFailure(path: relativePath(of: item), message: error.localizedDescription))
                 continue
             }
-            guard values?.isRegularFile == true, values?.isSymbolicLink != true else { continue }
-            let standardized = item.standardizedFileURL
-            let relative = String(standardized.path.dropFirst(root.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
+            if options.ignoreRules.isIgnored(name: item.lastPathComponent) {
+                if values.isDirectory == true { enumerator.skipDescendants() }
+                continue
+            }
+            guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
+            let modified = values.contentModificationDate?.timeIntervalSince1970 ?? 0
             files.append(LocalFile(
-                url: standardized,
-                relativePath: relative,
-                size: Int64(values?.fileSize ?? 0),
+                url: item.standardizedFileURL,
+                relativePath: relativePath(of: item),
+                size: Int64(values.fileSize ?? 0),
                 modifiedAtNanoseconds: Int64(modified * 1_000_000_000)
             ))
         }
-        return files.sorted { $0.relativePath < $1.relativePath }
+        return (files.sorted { $0.relativePath < $1.relativePath }, unreadable)
     }
 
     // MARK: Upload
 
     struct UploadOutcome: Sendable {
         enum Result: Sendable {
-            case uploaded(BackupManifest.Entry, bytes: Int64)
+            case uploaded(BackupManifest.Entry)
             case unchanged(BackupManifest.Entry)
             case failed(String)
         }
@@ -285,16 +295,16 @@ public struct BackupEngine: Sendable {
         } catch {
             return UploadOutcome(file: file, result: .failed(error.localizedDescription))
         }
-        let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let md5 = Insecure.MD5.hash(data: data).hexString
 
         if let remoteETag, remoteETag == md5 {
-            let entry = BackupManifest.Entry(size: file.size, modifiedAtNanoseconds: file.modifiedAtNanoseconds, md5: md5, remoteETag: remoteETag)
+            let entry = BackupManifest.Entry(size: file.size, modifiedAtNanoseconds: file.modifiedAtNanoseconds, remoteETag: remoteETag)
             return UploadOutcome(file: file, result: .unchanged(entry))
         }
         do throws(S3Error) {
             let eTag = try await client.putObject(key: key, data: data, contentType: contentType(for: file.url))
-            let entry = BackupManifest.Entry(size: file.size, modifiedAtNanoseconds: file.modifiedAtNanoseconds, md5: md5, remoteETag: eTag.isEmpty ? md5 : eTag)
-            return UploadOutcome(file: file, result: .uploaded(entry, bytes: Int64(data.count)))
+            let entry = BackupManifest.Entry(size: file.size, modifiedAtNanoseconds: file.modifiedAtNanoseconds, remoteETag: eTag.isEmpty ? md5 : eTag)
+            return UploadOutcome(file: file, result: .uploaded(entry))
         } catch {
             return UploadOutcome(file: file, result: .failed(describe(error)))
         }
@@ -317,7 +327,7 @@ public struct BackupEngine: Sendable {
     }
 
     static func manifestKey(bucket: String, endpoint: String, folder: String) -> String {
-        SHA256.hash(data: Data("\(endpoint)|\(bucket)|\(folder)".utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        SHA256.hash(data: Data("\(endpoint)|\(bucket)|\(folder)".utf8)).prefix(16).hexString
     }
 
     public static func describe(_ error: S3Error) -> String {

@@ -1,10 +1,10 @@
 import CryptoKit
 import Foundation
+import LiteMDDomain
 
 public struct RestoreReport: Sendable, Equatable {
     public var restored = 0
     public var skippedExisting = 0
-    public var bytesDownloaded: Int64 = 0
     public var failures: [BackupFailure] = []
 
     public var succeeded: Bool { failures.isEmpty }
@@ -30,7 +30,7 @@ public struct RemoteBackupFolder: Identifiable, Hashable, Sendable {
 /// 安全规则：
 /// - 绝不覆盖本地已存在的文件，已存在的文件跳过并计数；
 /// - 拒绝包含 `..`、绝对路径或空路径段的对象键，远端内容无法写到目标目录之外；
-/// - 下载内容与 ETag（MD5）不一致时视为失败，不写入。
+/// - 下载内容与 ETag（MD5）不一致时视为失败，不写入；KMS / SSE-C 加密或分块上传的对象 ETag 不是 MD5，不做这项校验。
 public struct RestoreEngine: Sendable {
     private let client: S3Client
 
@@ -87,9 +87,8 @@ public struct RestoreEngine: Sendable {
                 running -= 1
                 completed += 1
                 switch outcome {
-                case .restored(let bytes):
+                case .restored:
                     report.restored += 1
-                    report.bytesDownloaded += bytes
                 case .skipped:
                     report.skippedExisting += 1
                 case .ignored:
@@ -109,9 +108,9 @@ public struct RestoreEngine: Sendable {
     }
 
     enum Outcome: Sendable {
-        case restored(Int64)
+        case restored
         case skipped
-        /// “目录占位”对象（键以 `/` 结尾）。
+        /// “目录占位”对象（键以 `/` 结尾，或者就是备份目录本身）。
         case ignored
         case failed(String)
     }
@@ -126,7 +125,7 @@ public struct RestoreEngine: Sendable {
 
     private static func download(_ object: S3Object, relativePath: String, root: URL, client: S3Client) async -> Outcome {
         guard !Task.isCancelled else { return .failed("Cancelled") }
-        if relativePath.hasSuffix("/") { return .ignored }
+        if relativePath.isEmpty || relativePath.hasSuffix("/") { return .ignored }
         guard let segments = safeRelativePath(relativePath) else { return .failed("Unsafe path") }
 
         let target = segments.reduce(root) { $0.appendingPathComponent($1) }.standardizedFileURL
@@ -135,20 +134,19 @@ public struct RestoreEngine: Sendable {
 
         let data: Data
         do throws(S3Error) {
-            data = try await client.getObject(key: object.key)
+            let object = try await client.getObject(key: object.key)
+            data = object.data
+            if let expected = object.contentMD5, Insecure.MD5.hash(data: data).hexString != expected {
+                return .failed("Checksum mismatch")
+            }
         } catch {
             return .failed(BackupEngine.describe(error))
-        }
-        // 单块上传的 ETag 是 MD5；分块上传的 ETag 带 `-`，无法校验。
-        if !object.eTag.contains("-"), !object.eTag.isEmpty {
-            let md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
-            guard md5 == object.eTag.lowercased() else { return .failed("Checksum mismatch") }
         }
         do {
             try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             // withoutOverwriting：下载期间目标被创建时同样不会覆盖。
             try data.write(to: target, options: [.withoutOverwriting])
-            return .restored(Int64(data.count))
+            return .restored
         } catch CocoaError.fileWriteFileExists {
             return .skipped
         } catch {

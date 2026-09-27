@@ -1550,23 +1550,6 @@
         }
       }
     },
-    "Compact": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compact"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "紧凑"
-          }
-        }
-      }
-    },
     "Compare": {
       "extractionState": "manual",
       "localizations": {
@@ -1924,23 +1907,6 @@
         }
       }
     },
-    "Custom": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Custom"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自定"
-          }
-        }
-      }
-    },
     "Custom folder": {
       "extractionState": "manual",
       "localizations": {
@@ -2247,23 +2213,6 @@
         }
       }
     },
-    "Editor": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Editor"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "编辑器"
-          }
-        }
-      }
-    },
     "Editor Mode (⌘\\)": {
       "extractionState": "manual",
       "localizations": {
@@ -2277,23 +2226,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "编辑模式（⌘\\）"
-          }
-        }
-      }
-    },
-    "Editor width": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Editor width"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "编辑区宽度"
           }
         }
       }
@@ -2481,23 +2413,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "失败"
-          }
-        }
-      }
-    },
-    "Family": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Family"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字体系列"
           }
         }
       }
@@ -2757,23 +2672,6 @@
         }
       }
     },
-    "Font": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Font"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字体"
-          }
-        }
-      }
-    },
     "Font family or address": {
       "extractionState": "manual",
       "localizations": {
@@ -2787,23 +2685,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "字体族名或地址"
-          }
-        }
-      }
-    },
-    "Font name": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Font name"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字体名称"
           }
         }
       }
@@ -3726,23 +3607,6 @@
         }
       }
     },
-    "Layout": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Layout"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "版式"
-          }
-        }
-      }
-    },
     "Light": {
       "extractionState": "manual",
       "localizations": {
@@ -3965,23 +3829,6 @@
         }
       }
     },
-    "LiteMD keeps a copy of a file before overwriting it, at most once every 10 minutes. Versions appear here after you edit and save this document.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "LiteMD keeps a copy of a file before overwriting it, at most once every 10 minutes. Versions appear here after you edit and save this document."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "LiteMD 在覆盖文件前会保存一份副本，同一文件最多每 10 分钟一份。编辑并保存此文稿后，历史版本会出现在这里。"
-          }
-        }
-      }
-    },
     "LiteMD keeps a copy of a file before overwriting it, at most once every 10 minutes. Versions appear here after you edit and save this document. iCloud conflict versions from your other devices also appear here.": {
       "extractionState": "manual",
       "localizations": {
@@ -4084,23 +3931,6 @@
         }
       }
     },
-    "Loose": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loose"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更宽松"
-          }
-        }
-      }
-    },
     "Mark as Done": {
       "extractionState": "manual",
       "localizations": {
@@ -4186,23 +4016,6 @@
         }
       }
     },
-    "Medium": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Medium"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中"
-          }
-        }
-      }
-    },
     "Midnight": {
       "extractionState": "manual",
       "localizations": {
@@ -4267,23 +4080,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "模式"
-          }
-        }
-      }
-    },
-    "Mono": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mono"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "等宽"
           }
         }
       }
@@ -4403,23 +4199,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称"
-          }
-        }
-      }
-    },
-    "Narrow": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Narrow"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "窄"
           }
         }
       }
@@ -4709,23 +4488,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "北境"
-          }
-        }
-      }
-    },
-    "Normal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Normal"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "标准"
           }
         }
       }
@@ -5716,23 +5478,6 @@
         }
       }
     },
-    "Relaxed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relaxed"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "宽松"
-          }
-        }
-      }
-    },
     "Reload": {
       "extractionState": "manual",
       "localizations": {
@@ -6226,23 +5971,6 @@
         }
       }
     },
-    "Sans": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sans"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无衬线"
-          }
-        }
-      }
-    },
     "Save": {
       "extractionState": "manual",
       "localizations": {
@@ -6583,23 +6311,6 @@
         }
       }
     },
-    "Serif": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Serif"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "衬线"
-          }
-        }
-      }
-    },
     "Service": {
       "extractionState": "manual",
       "localizations": {
@@ -6800,40 +6511,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "在访达中显示"
-          }
-        }
-      }
-    },
-    "Sidebar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidebar"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "边栏"
-          }
-        }
-      }
-    },
-    "Size: %lld pt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Size: %lld pt"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字号：%lld pt"
           }
         }
       }
@@ -7735,23 +7412,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新包中没有预期版本的 LiteMD。"
-          }
-        }
-      }
-    },
-    "Theme": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Theme"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "主题"
           }
         }
       }
@@ -8725,23 +8385,6 @@
         }
       }
     },
-    "Wide": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wide"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "宽"
-          }
-        }
-      }
-    },
     "Word Document…": {
       "extractionState": "manual",
       "localizations": {
@@ -8908,23 +8551,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "assets/"
-          }
-        }
-      }
-    },
-    "e.g. Menlo": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "e.g. Menlo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "例如 Menlo"
           }
         }
       }

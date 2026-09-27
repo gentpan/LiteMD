@@ -67,7 +67,7 @@ brew install --cask litemd
 
 ## 从源码构建
 
-需要 Xcode 16 及以上和 [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+需要 Xcode 26 及以上（Swift 6.2）和 [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 （`brew install xcodegen`）。Xcode 工程由 `project.yml` 生成，不入库。
 
 ```bash

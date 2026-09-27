@@ -61,7 +61,7 @@ let package = Package(
         .target(name: "LiteMDUpdates"),
 
         .testTarget(name: "LiteMDDomainTests", dependencies: ["LiteMDDomain"]),
-        .testTarget(name: "LiteMDBackupTests", dependencies: ["LiteMDBackup"]),
+        .testTarget(name: "LiteMDBackupTests", dependencies: ["LiteMDBackup", "LiteMDDomain"]),
         .testTarget(name: "LiteMDUpdatesTests", dependencies: ["LiteMDUpdates"]),
         .testTarget(
             name: "LiteMDConversionTests",
