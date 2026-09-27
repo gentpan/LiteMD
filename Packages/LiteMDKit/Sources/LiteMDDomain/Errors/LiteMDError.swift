@@ -10,7 +10,6 @@ public struct LiteMDError: Error, Equatable, Sendable {
         case encoding
         case save
         case conflict
-        case parse
         case workspace
         case recovery
         case asset
@@ -20,6 +19,8 @@ public struct LiteMDError: Error, Equatable, Sendable {
         case notFound
         case permissionDenied
         case alreadyExists
+        /// 目标文件已在另一个标签页中打开。
+        case alreadyOpen
         case diskFull
         case readOnlyVolume
         case unsupportedEncoding
@@ -50,40 +51,5 @@ public struct LiteMDError: Error, Equatable, Sendable {
         if let kind { copy.kind = kind }
         if let fileName { copy.fileName = fileName }
         return copy
-    }
-
-    /// 例如："Unable to save README.md."
-    public var title: String {
-        let name = fileName ?? "the document"
-        switch kind {
-        case .file: return "Unable to open \(name)."
-        case .encoding: return "Unable to open \(name)."
-        case .save: return "Unable to save \(name)."
-        case .conflict: return "\(name) was changed outside LiteMD."
-        case .parse: return "Unable to read \(name)."
-        case .workspace: return "The folder operation could not be completed."
-        case .recovery: return "Unable to recover \(name)."
-        case .asset: return "Unable to insert the image."
-        }
-    }
-
-    /// 例如："LiteMD does not have permission to write to this folder."
-    public var message: String {
-        switch reason {
-        case .notFound: "The file or folder no longer exists. It may have been moved or deleted."
-        case .permissionDenied: "LiteMD does not have permission to access this location."
-        case .alreadyExists: "An item with the same name already exists."
-        case .diskFull: "There is not enough disk space."
-        case .readOnlyVolume: "This location is read-only."
-        case .unsupportedEncoding: "The file is not UTF-8 or UTF-16 encoded. LiteMD did not open it to avoid damaging its contents."
-        case .isDirectory: "This is a folder, not a file."
-        case .fileTooLarge: "The file is too large to open in the editor."
-        case .externalModification: "The file on disk was modified by another app. LiteMD did not overwrite it."
-        case .externalDeletion: "The file on disk was deleted or moved."
-        case .requiresSavedDocument: "Save the document to a file first."
-        case .invalidName: "The name is not valid."
-        case .unsupportedFileType: "This file type is not supported."
-        case .unknown: "An unexpected error occurred."
-        }
     }
 }

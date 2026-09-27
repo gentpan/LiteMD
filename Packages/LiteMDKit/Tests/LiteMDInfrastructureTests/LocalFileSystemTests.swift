@@ -110,6 +110,35 @@ struct LocalFileSystemTests {
         #expect(names.contains("README.md"))
     }
 
+    /// a.md 是指向 b.md 的链接：跟随链接后两者是同一文件，但这不是大小写重命名，不能覆盖 b.md。
+    @Test func renamingSymlinkOntoItsTargetIsRefused() async throws {
+        let target = directory.file("b.md", "real content")
+        let link = directory.file("a.md")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "b.md")
+
+        do {
+            try await fileSystem.moveItem(from: link, to: target)
+            Issue.record("move should fail")
+        } catch {
+            #expect(error.reason == .alreadyExists)
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: target.path)
+        #expect(attributes[.type] as? FileAttributeType == .typeRegular)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "real content")
+    }
+
+    @Test func replaceOnlyWriteDoesNotRecreateMissingFile() async throws {
+        let url = directory.file("gone.md")
+        do {
+            _ = try await fileSystem.writeText("x", encoding: .utf8, lineEnding: .lf, to: url, requireExisting: true)
+            Issue.record("write should fail")
+        } catch {
+            #expect(error.kind == .conflict)
+            #expect(error.reason == .externalDeletion)
+        }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
     @Test func listsDirectoriesFirstAndHonorsIgnoreRules() async throws {
         _ = directory.file("b.md", "")
         _ = directory.file("A.md", "")
@@ -136,7 +165,6 @@ struct RecoveryStoreTests {
             documentID: id,
             originalURL: URL(fileURLWithPath: "/tmp/a.md"),
             displayName: "a.md",
-            revision: 3,
             knownDiskRevision: DiskRevision(modifiedAtNanoseconds: 1_700_000_000_123_456_789, fileSize: 4, contentHash: "h"),
             encoding: .utf8,
             lineEnding: .lf,
@@ -151,5 +179,34 @@ struct RecoveryStoreTests {
 
         await reopened.remove(id)
         #expect(await FileRecoveryStore(directory: directory.url).entries().isEmpty)
+    }
+}
+
+@Suite("VersionHistoryStore")
+struct VersionHistoryStoreTests {
+    let directory = TemporaryDirectory()
+
+    @Test func historyFollowsMovedFilesAndFolders() async throws {
+        let store = FileVersionHistoryStore(directory: directory.url)
+        let file = URL(fileURLWithPath: "/w/a.md")
+        let nested = URL(fileURLWithPath: "/w/dir/b.md")
+        let sibling = URL(fileURLWithPath: "/w/dir-2/c.md")
+        let renamed = URL(fileURLWithPath: "/w/renamed.md")
+        await store.storeSnapshot(of: file, data: Data("a".utf8), date: Date())
+        await store.storeSnapshot(of: nested, data: Data("b".utf8), date: Date())
+        await store.storeSnapshot(of: sibling, data: Data("c".utf8), date: Date())
+        // 目标路径上残留着一个已经不在的文件的历史。
+        await store.storeSnapshot(of: renamed, data: Data("stale".utf8), date: Date())
+
+        await store.moveSnapshots(from: file, to: renamed)
+        await store.moveSnapshots(from: URL(fileURLWithPath: "/w/dir"), to: URL(fileURLWithPath: "/w/archive"))
+
+        #expect(await store.snapshots(for: file).isEmpty)
+        let moved = await store.snapshots(for: renamed)
+        #expect(moved.count == 1)
+        #expect(try Data(contentsOf: try #require(moved.first).fileURL) == Data("a".utf8))
+        #expect(await store.snapshots(for: nested).isEmpty)
+        #expect(await store.snapshots(for: URL(fileURLWithPath: "/w/archive/b.md")).count == 1)
+        #expect(await store.snapshots(for: sibling).count == 1)
     }
 }

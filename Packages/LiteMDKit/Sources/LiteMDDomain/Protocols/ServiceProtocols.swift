@@ -30,7 +30,9 @@ public protocol FileSystem: Sendable {
     func readData(at url: URL) async throws(LiteMDError) -> Data
 
     /// 原子写入：temporary → flush → fsync → atomic replace（spec §81）。
-    func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL) async throws(LiteMDError) -> DiskRevision
+    /// - Parameter requireExisting: 为 true 时只替换已存在的文件；文件已被移走或删除时抛出
+    ///   `.conflict` / `.externalDeletion`，绝不在原路径重新创建。
+    func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL, requireExisting: Bool) async throws(LiteMDError) -> DiskRevision
 
     /// 文件不存在时返回 nil。
     func diskRevision(at url: URL, includeHash: Bool) async throws(LiteMDError) -> DiskRevision?
@@ -54,6 +56,11 @@ public protocol FileSystem: Sendable {
 }
 
 public extension FileSystem {
+    /// 创建新文件或替换已有文件。
+    func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL) async throws(LiteMDError) -> DiskRevision {
+        try await writeText(text, encoding: encoding, lineEnding: lineEnding, to: url, requireExisting: false)
+    }
+
     /// 默认实现：不处理 iCloud。
     func ensureDownloaded(at url: URL) async throws(LiteMDError) {}
     func cloudStatus(at url: URL) async -> CloudStatus { .local }
@@ -73,7 +80,7 @@ public struct RecoveryEntry: Codable, Identifiable, Sendable, Equatable {
     public var documentID: DocumentID
     public var originalURL: URL?
     public var displayName: String
-    public var revision: Int
+    /// 崩溃前对原文件的认知（磁盘版本、编码、换行符），恢复时一并还原。
     public var knownDiskRevision: DiskRevision?
     public var encoding: TextEncoding
     public var lineEnding: LineEnding
@@ -83,7 +90,6 @@ public struct RecoveryEntry: Codable, Identifiable, Sendable, Equatable {
         documentID: DocumentID,
         originalURL: URL?,
         displayName: String,
-        revision: Int,
         knownDiskRevision: DiskRevision?,
         encoding: TextEncoding,
         lineEnding: LineEnding,
@@ -92,7 +98,6 @@ public struct RecoveryEntry: Codable, Identifiable, Sendable, Equatable {
         self.documentID = documentID
         self.originalURL = originalURL
         self.displayName = displayName
-        self.revision = revision
         self.knownDiskRevision = knownDiskRevision
         self.encoding = encoding
         self.lineEnding = lineEnding
@@ -115,6 +120,8 @@ public protocol RecoveryStoring: Sendable {
 public protocol VersionHistoryStoring: Sendable {
     func storeSnapshot(of url: URL, data: Data, date: Date) async
     func snapshots(for url: URL) async -> [VersionSnapshot]
+    /// 文件或文件夹被重命名 / 移动后，让其下所有文件的历史版本跟随到新路径。
+    func moveSnapshots(from oldURL: URL, to newURL: URL) async
 }
 
 public struct VersionSnapshot: Codable, Sendable, Equatable, Hashable, Identifiable {

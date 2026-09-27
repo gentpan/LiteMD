@@ -1032,6 +1032,7 @@ final class AppModel {
     func performRename(_ request: RenameRequest) {
         Task {
             do {
+                await documents.finishPendingSaves(under: request.url)
                 try await workspace.rename(request.url, to: request.name)
                 updateWatchedDirectories()
             } catch {
@@ -1053,6 +1054,7 @@ final class AppModel {
     func move(_ url: URL, into directory: URL) {
         Task {
             do {
+                await documents.finishPendingSaves(under: url)
                 try await workspace.move(url, into: directory)
             } catch {
                 SystemIntegration.present(error)
@@ -1063,6 +1065,7 @@ final class AppModel {
     func moveToTrash(_ url: URL) {
         Task {
             do {
+                await documents.finishPendingSaves(under: url)
                 try await workspace.trash(url)
             } catch {
                 SystemIntegration.present(error)

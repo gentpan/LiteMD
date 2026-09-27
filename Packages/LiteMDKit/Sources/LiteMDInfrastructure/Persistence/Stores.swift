@@ -112,7 +112,7 @@ public actor FileVersionHistoryStore: VersionHistoryStoring {
     }
 
     private func folder(for url: URL) -> URL {
-        let digest = SHA256.hash(data: Data(url.standardizedFileURL.path.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: Data(url.standardizedFileURL.path.utf8)).prefix(12).hexString
         return directory.appendingPathComponent(digest, isDirectory: true)
     }
 
@@ -165,6 +165,34 @@ public actor FileVersionHistoryStore: VersionHistoryStoring {
                 return VersionSnapshot(originalURL: url, fileURL: file, date: date, byteCount: Int64(values?.fileSize ?? 0))
             }
             .sorted { $0.date > $1.date }
+    }
+
+    /// 历史目录按路径哈希命名，重命名 / 移动后要整体搬到新路径对应的目录，
+    /// 否则历史会丢失，而之后在旧路径新建的文件会“继承”不相干的历史。
+    /// 文件夹被移动时，其下所有文件的历史一起跟随。
+    public func moveSnapshots(from oldURL: URL, to newURL: URL) {
+        let oldPath = oldURL.standardizedFileURL.path
+        let newPath = newURL.standardizedFileURL.path
+        guard oldPath != newPath,
+              let folders = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+
+        let moves = folders.compactMap { folder -> (folder: URL, path: String)? in
+            guard let data = try? Data(contentsOf: folder.appendingPathComponent("path.txt")) else { return nil }
+            let path = String(decoding: data, as: UTF8.self)
+            guard path == oldPath || path.hasPrefix(oldPath + "/") else { return nil }
+            return (folder, newPath + path.dropFirst(oldPath.count))
+        }
+        for (folder, movedPath) in moves {
+            let destination = self.folder(for: URL(fileURLWithPath: movedPath, isDirectory: false))
+            // 目标路径原先没有文件（移动不会覆盖），那里残留的历史属于已经不在的文件。
+            try? FileManager.default.removeItem(at: destination)
+            do {
+                try FileManager.default.moveItem(at: folder, to: destination)
+                try Data(movedPath.utf8).write(to: destination.appendingPathComponent("path.txt"), options: .atomic)
+            } catch {
+                // 搬移失败只影响历史版本的显示，不影响文件本身。
+            }
+        }
     }
 }
 

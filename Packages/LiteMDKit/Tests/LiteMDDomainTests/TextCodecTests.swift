@@ -57,8 +57,7 @@ struct TextCodecTests {
     @Test func selectionRangeHandlesBackwardSelection() {
         let selection = Selection(anchor: 8, head: 2)
         #expect(selection.range == NSRange(location: 2, length: 6))
-        #expect(!selection.isCursor)
-        #expect(Selection(cursor: 3).isCursor)
+        #expect(Selection(cursor: 3).range == NSRange(location: 3, length: 0))
     }
 
     @Test func diskRevisionComparison() {

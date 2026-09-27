@@ -88,7 +88,6 @@ public final class DocumentService {
         if !text.isEmpty {
             document.replaceAllText(text)
         }
-        document.lifecycle = .ready
         register(document)
         return document
     }
@@ -115,18 +114,15 @@ public final class DocumentService {
         let reference = FileReference(url: url, encoding: loaded.encoding, lineEnding: loaded.lineEnding, identity: loaded.identity)
         let document = Document(fileReference: reference, text: loaded.text)
         document.knownDiskRevision = loaded.diskRevision
-        document.lifecycle = .ready
         register(document)
         onFileOpened?(url)
         return document
     }
 
     private func existingDocument(for url: URL) async -> Document? {
-        if let match = documents.first(where: { $0.fileReference?.url.standardizedFileURL == url }) {
-            return match
-        }
-        let identity = await fileSystem.identity(at: url)
-        return existingDocument(for: url, identity: identity)
+        // 路径相同时不必查询 inode。
+        if let match = existingDocument(for: url, identity: nil) { return match }
+        return existingDocument(for: url, identity: await fileSystem.identity(at: url))
     }
 
     private func existingDocument(for url: URL, identity: FileIdentity?) -> Document? {
@@ -175,11 +171,18 @@ public final class DocumentService {
     }
 
     /// Save As 与 Untitled 的首次保存。用户已在文件面板中确认覆盖。
+    ///
+    /// 目标文件已在另一个标签页中打开时拒绝保存（`.alreadyOpen`），不关闭也不合并那个标签页：
+    /// 同一文件只能有一个 Buffer（spec §110），而那个标签页可能还有未保存的修改。
     public func save(_ document: Document, to url: URL) async throws(LiteMDError) {
+        let url = url.standardizedFileURL
+        if let other = await existingDocument(for: url), other !== document {
+            throw LiteMDError(kind: .save, reason: .alreadyOpen, fileName: url.lastPathComponent)
+        }
+
         await saveCoordinator.waitUntilIdle(document)
         autosave.cancel(document)
 
-        let url = url.standardizedFileURL
         let previousReference = document.fileReference
         let previousDiskRevision = document.knownDiskRevision
         let previousConflict = document.conflict
@@ -275,12 +278,12 @@ public final class DocumentService {
         try await saveCoordinator.save(document, policy: .overwriteExternalChanges)
     }
 
-    /// 冲突：用于对比的磁盘内容。
     // MARK: Version history
 
     /// 文档的历史版本与 iCloud 冲突版本（新到旧）。未保存过的文档没有历史。
     public func versionSnapshots(for document: Document) async -> [VersionSnapshot] {
         guard let url = document.fileReference?.url else { return [] }
+        await saveCoordinator.waitForHistoryMigration()
         let history = await versionHistory?.snapshots(for: url) ?? []
         let conflicts = await fileSystem.cloudConflicts(at: url)
         return (history + conflicts).sorted { $0.date > $1.date }
@@ -294,6 +297,7 @@ public final class DocumentService {
 
     /// 立即把磁盘上的当前版本存为历史版本（恢复旧版本前调用，保证恢复可以反悔）。
     public func storeSnapshotOfDiskVersion(_ document: Document) async {
+        await saveCoordinator.waitForHistoryMigration()
         guard let versionHistory, let url = document.fileReference?.url,
               let data = try? await fileSystem.readData(at: url) else { return }
         await versionHistory.storeSnapshot(of: url, data: data, date: Date())
@@ -304,6 +308,7 @@ public final class DocumentService {
         try await fileSystem.readText(at: snapshot.fileURL).text
     }
 
+    /// 冲突：用于对比的磁盘内容。
     public func diskText(for document: Document) async throws(LiteMDError) -> String {
         guard let reference = document.fileReference else {
             throw LiteMDError(kind: .file, reason: .notFound, fileName: document.displayName)
@@ -326,13 +331,7 @@ public final class DocumentService {
         }
         guard document.fileReference?.url == reference.url else { return }
 
-        if loaded.text != document.buffer.snapshot() {
-            if let editor = document.textEditor {
-                editor.replaceEntireText(with: loaded.text)
-            } else {
-                document.replaceAllText(loaded.text)
-            }
-        }
+        replaceText(of: document, with: loaded.text)
         var updated = reference
         updated.encoding = loaded.encoding
         updated.lineEnding = loaded.lineEnding
@@ -344,6 +343,16 @@ public final class DocumentService {
         document.saveActivity = .idle
         recovery.documentClosed(document)
         parseCoordinator.schedule(document, immediately: true)
+    }
+
+    /// 整体替换正文：有编辑器时走编辑器（可撤销、选区合理），否则直接替换 Buffer。
+    private func replaceText(of document: Document, with text: String) {
+        guard text != document.buffer.snapshot() else { return }
+        if let editor = document.textEditor {
+            editor.replaceEntireText(with: text)
+        } else {
+            document.replaceAllText(text)
+        }
     }
 
     // MARK: External changes
@@ -383,6 +392,7 @@ public final class DocumentService {
 
         guard let current else {
             if let newURL = await locateMovedFile(reference, events: events) {
+                saveCoordinator.itemMoved(from: reference.url, to: newURL)
                 followMove(document, to: newURL)
                 return
             }
@@ -445,13 +455,35 @@ public final class DocumentService {
         guard var reference = document.fileReference else { return }
         reference.url = url
         document.setFileReference(reference)
-        if document.conflict.isConflict { document.conflict = .none }
+        // 文件找到了，“已删除”不再成立；但外部修改造成的冲突仍需用户处理。
+        if document.conflict == .externalDeleted { document.conflict = .none }
+        // 移动期间失败或跳过的自动保存改为写入新位置。
+        if document.isDirty { autosave.documentDidChange(document) }
         parseCoordinator.schedule(document, immediately: true)
         onDocumentsChanged?()
     }
 
-    /// 应用内重命名 / 移动文件或文件夹后调用，更新受影响的文档路径。
+    /// 重命名、移动文件或文件夹，或把它们移到废纸篓之前调用：立即执行等待中的自动保存，
+    /// 并等待进行中的保存完成。否则保存会写回旧路径，把已经移走或删除的文件重新创建出来。
+    public func finishPendingSaves(under url: URL) async {
+        let path = url.standardizedFileURL.path
+        let affected = documents.filter { document in
+            guard let documentPath = document.fileReference?.url.path else { return false }
+            return documentPath == path || documentPath.hasPrefix(path + "/")
+        }
+        for document in affected {
+            // 与自动保存的条件一致：IME 组合中的内容不写入，跟随移动后再保存到新位置。
+            if isAutosaveEnabled, document.isDirty, !document.isComposing, !document.conflict.isConflict {
+                autosave.cancel(document)
+                try? await saveCoordinator.save(document, policy: .ifDirty)
+            }
+            await saveCoordinator.waitUntilIdle(document)
+        }
+    }
+
+    /// 应用内重命名 / 移动文件或文件夹后调用，更新受影响的文档路径与历史版本。
     public func itemMoved(from oldURL: URL, to newURL: URL) {
+        saveCoordinator.itemMoved(from: oldURL, to: newURL)
         let oldPath = oldURL.standardizedFileURL.path
         for document in documents {
             guard let reference = document.fileReference else { continue }
@@ -497,14 +529,16 @@ public final class DocumentService {
                 if let url = entry.originalURL, await fileSystem.itemExists(at: url) {
                     document = try await openDocument(at: url)
                     if content != document.buffer.snapshot() {
-                        if let editor = document.textEditor {
-                            editor.replaceEntireText(with: content)
-                        } else {
-                            document.replaceAllText(content)
-                        }
-                        // 使用崩溃前已知的磁盘版本：若之后磁盘被其他程序修改，保存时会进入冲突。
+                        replaceText(of: document, with: content)
+                        // 还原崩溃前对磁盘文件的认知：若之后磁盘被其他程序修改，保存时会进入冲突；
+                        // 编码与换行符沿用编辑时的设置，不被外部改写后的文件带偏。
                         if let known = entry.knownDiskRevision {
                             document.knownDiskRevision = known
+                        }
+                        if var reference = document.fileReference {
+                            reference.encoding = entry.encoding
+                            reference.lineEnding = entry.lineEnding
+                            document.setFileReference(reference)
                         }
                     }
                 } else {

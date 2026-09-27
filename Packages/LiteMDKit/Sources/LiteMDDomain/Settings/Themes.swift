@@ -179,9 +179,6 @@ public enum ColorTheme: String, CaseIterable, Identifiable, Sendable {
     public static let defaultLight: ColorTheme = .paper
     public static let defaultDark: ColorTheme = .charcoal
 
-    public static var lightThemes: [ColorTheme] { allCases.filter { !$0.isDark } }
-    public static var darkThemes: [ColorTheme] { allCases.filter(\.isDark) }
-
     /// 旧版本只有四个强调色主题（graphite / green / blue / red），迁移为浅色主题。
     public static func migrated(legacy rawValue: String) -> ColorTheme? {
         switch rawValue {

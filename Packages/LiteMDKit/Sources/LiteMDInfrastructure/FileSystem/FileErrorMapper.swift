@@ -5,9 +5,6 @@ import LiteMDDomain
 /// 把系统错误翻译为 `LiteMDError`。原始错误只保留在 `technicalDetails` 中（spec §160）。
 enum FileErrorMapper {
     static func map(_ error: any Error, fileName: String?, kind: LiteMDError.Kind = .file) -> LiteMDError {
-        if let error = error as? LiteMDError {
-            return error.with(fileName: error.fileName ?? fileName)
-        }
         let nsError = error as NSError
         var reason = LiteMDError.Reason.unknown
 

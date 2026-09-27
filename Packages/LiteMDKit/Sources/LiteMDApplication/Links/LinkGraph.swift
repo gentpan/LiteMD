@@ -5,15 +5,19 @@ import LiteMDEditor
 /// 把 `[[目标]]` 解析为 Workspace 中的文件。
 ///
 /// 顺序：相对 Workspace 根目录的路径 → 相对当前文档目录的路径 → 文件名（不区分大小写，
-/// 优先与当前文档同目录，其次路径最短）。目标没有扩展名时按 Markdown 文件查找。
+/// 优先与当前文档同目录，其次路径最短）。目标不以 Markdown / 文本扩展名结尾时按 Markdown 文件查找。
 public enum WikiLinkResolver {
+    /// 补全扩展名时的尝试顺序：md 优先，其余按字母顺序，保证结果确定。
+    private static let documentExtensions = ["md"] + MarkdownFileType.documentExtensions.subtracting(["md"]).sorted()
+
     public static func resolve(_ target: String, from documentURL: URL?, root: URL?, candidates: [URL]) -> URL? {
         var cleaned = target.trimmingCharacters(in: .whitespaces)
         while cleaned.hasPrefix("/") { cleaned.removeFirst() }
         guard !cleaned.isEmpty else { return documentURL }
 
-        let hasExtension = !(cleaned as NSString).pathExtension.isEmpty
-        let names = hasExtension ? [cleaned] : ["md", "markdown", "mdown", "mkd", "txt"].map { "\(cleaned).\($0)" }
+        // `[[2024.01.05]]`、`[[README.zh]]` 中的点属于文件名，只有已知扩展名才算“已带扩展名”。
+        let hasExtension = MarkdownFileType.documentExtensions.contains((cleaned as NSString).pathExtension.lowercased())
+        let names = hasExtension ? [cleaned] : documentExtensions.map { "\(cleaned).\($0)" }
         let byPath = Dictionary(candidates.map { (normalize($0.standardizedFileURL.path), $0) }, uniquingKeysWith: { first, _ in first })
 
         for base in [root, documentURL?.deletingLastPathComponent()].compactMap({ $0 }) {

@@ -33,9 +33,10 @@ final class SaveCoordinator {
     private var running: [DocumentID: Task<Result<Void, LiteMDError>, Never>] = [:]
     /// 每个文件最近一次保存历史版本的时间。
     private var lastSnapshotDates: [String: Date] = [:]
+    /// 历史版本随重命名 / 移动搬迁的任务链。之后的读写都要排在它后面。
+    private var historyMigration: Task<Void, Never>?
 
     var didSave: ((Document) -> Void)?
-    var didDetectConflict: ((Document) -> Void)?
 
     /// - Parameter snapshotInterval: 同一文件两次历史版本之间的最短间隔。本次运行中第一次覆盖、
     ///   以及用户选择覆盖外部修改时总会保存。
@@ -97,11 +98,14 @@ final class SaveCoordinator {
 
             await snapshotBeforeOverwrite(snapshot.fileReference.url, force: policy == .overwriteExternalChanges)
 
+            // 文档认为文件存在时，写入期间文件被移走或删除要报冲突，而不是在旧路径把它重新创建出来。
+            // 首次保存、Save As、用户选择“保留我的版本”时允许创建。
             let written = try await fileSystem.writeText(
                 snapshot.content,
                 encoding: snapshot.fileReference.encoding,
                 lineEnding: snapshot.fileReference.lineEnding,
-                to: snapshot.fileReference.url
+                to: snapshot.fileReference.url,
+                requireExisting: snapshot.knownDiskRevision != nil && policy != .overwriteExternalChanges
             )
 
             // 保存期间文件可能被重命名；只有仍指向同一位置时才更新磁盘版本。
@@ -118,9 +122,12 @@ final class SaveCoordinator {
             return .success(())
         } catch {
             if error.kind == .conflict {
-                document.conflict = error.reason == .externalDeletion ? .externalDeleted : .externalModified
+                // 保存期间文档已跟随重命名 / 移动到新位置时，旧路径上的冲突不再适用：保持 Dirty，
+                // 由跟随移动时重新安排的自动保存写入新位置。
+                if document.fileReference?.url == snapshot.fileReference.url {
+                    document.conflict = error.reason == .externalDeletion ? .externalDeleted : .externalModified
+                }
                 document.saveActivity = .idle
-                didDetectConflict?(document)
             } else {
                 document.saveActivity = .failed(error)
             }
@@ -128,8 +135,31 @@ final class SaveCoordinator {
         }
     }
 
+    /// 文件或文件夹被重命名 / 移动后调用，让历史版本与保存间隔跟随新路径。
+    func itemMoved(from oldURL: URL, to newURL: URL) {
+        let oldPath = oldURL.standardizedFileURL.path
+        let newPath = newURL.standardizedFileURL.path
+        for (path, date) in lastSnapshotDates where path == oldPath || path.hasPrefix(oldPath + "/") {
+            lastSnapshotDates[path] = nil
+            lastSnapshotDates[newPath + path.dropFirst(oldPath.count)] = date
+        }
+
+        guard let history else { return }
+        let previous = historyMigration
+        historyMigration = Task {
+            await previous?.value
+            await history.moveSnapshots(from: oldURL, to: newURL)
+        }
+    }
+
+    /// 等待进行中的历史搬迁，保证随后读到、写入的是新路径下的历史。
+    func waitForHistoryMigration() async {
+        await historyMigration?.value
+    }
+
     private func snapshotBeforeOverwrite(_ url: URL, force: Bool) async {
         guard let history else { return }
+        await waitForHistoryMigration()
         let path = url.standardizedFileURL.path
         let date = now()
         if !force, let last = lastSnapshotDates[path], date.timeIntervalSince(last) < snapshotInterval { return }

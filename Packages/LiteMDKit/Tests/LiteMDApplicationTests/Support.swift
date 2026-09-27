@@ -42,9 +42,26 @@ final class GatedFileSystem: FileSystem, @unchecked Sendable {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var _writeCount = 0
     private var _writtenTexts: [String] = []
+    private var holdsNextListing = false
+    private var listingWaiters: [CheckedContinuation<Void, Never>] = []
 
     var writeCount: Int { lock.withLock { _writeCount } }
     var writtenTexts: [String] { lock.withLock { _writtenTexts } }
+    var heldListingCount: Int { lock.withLock { listingWaiters.count } }
+
+    /// 下一次目录读取完成后先暂停再返回，模拟“较早开始的读取较晚返回”。
+    func holdNextDirectoryListing() {
+        lock.withLock { holdsNextListing = true }
+    }
+
+    func releaseDirectoryListings() {
+        let pending = lock.withLock {
+            let pending = listingWaiters
+            listingWaiters = []
+            return pending
+        }
+        pending.forEach { $0.resume() }
+    }
 
     func holdWrites() {
         lock.withLock { isHolding = true }
@@ -60,7 +77,7 @@ final class GatedFileSystem: FileSystem, @unchecked Sendable {
         pending.forEach { $0.resume() }
     }
 
-    func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL) async throws(LiteMDError) -> DiskRevision {
+    func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL, requireExisting: Bool) async throws(LiteMDError) -> DiskRevision {
         lock.withLock {
             _writeCount += 1
             _writtenTexts.append(text)
@@ -75,7 +92,7 @@ final class GatedFileSystem: FileSystem, @unchecked Sendable {
             }
             if !shouldWait { continuation.resume() }
         }
-        return try await base.writeText(text, encoding: encoding, lineEnding: lineEnding, to: url)
+        return try await base.writeText(text, encoding: encoding, lineEnding: lineEnding, to: url, requireExisting: requireExisting)
     }
 
     func readText(at url: URL) async throws(LiteMDError) -> LoadedText { try await base.readText(at: url) }
@@ -84,7 +101,19 @@ final class GatedFileSystem: FileSystem, @unchecked Sendable {
     func identity(at url: URL) async -> FileIdentity? { await base.identity(at: url) }
     func itemExists(at url: URL) async -> Bool { await base.itemExists(at: url) }
     func isDirectory(at url: URL) async -> Bool { await base.isDirectory(at: url) }
-    func contentsOfDirectory(at url: URL, rules: WorkspaceIgnoreRules) async throws(LiteMDError) -> [WorkspaceEntry] { try await base.contentsOfDirectory(at: url, rules: rules) }
+    func contentsOfDirectory(at url: URL, rules: WorkspaceIgnoreRules) async throws(LiteMDError) -> [WorkspaceEntry] {
+        let entries = try await base.contentsOfDirectory(at: url, rules: rules)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let shouldWait = lock.withLock {
+                guard holdsNextListing else { return false }
+                holdsNextListing = false
+                listingWaiters.append(continuation)
+                return true
+            }
+            if !shouldWait { continuation.resume() }
+        }
+        return entries
+    }
     func markdownFiles(under url: URL, rules: WorkspaceIgnoreRules) async throws(LiteMDError) -> [URL] { try await base.markdownFiles(under: url, rules: rules) }
     func createFile(at url: URL, contents: Data) async throws(LiteMDError) { try await base.createFile(at: url, contents: contents) }
     func createDirectory(at url: URL) async throws(LiteMDError) { try await base.createDirectory(at: url) }

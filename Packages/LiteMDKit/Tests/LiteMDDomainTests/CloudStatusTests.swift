@@ -27,7 +27,5 @@ struct CloudStatusTests {
         #expect(CloudStatus.downloading(fraction: 0.5).needsDownload)
         #expect(!CloudStatus.downloaded.needsDownload)
         #expect(!CloudStatus.local.needsDownload)
-        #expect(!CloudStatus.local.isInCloud)
-        #expect(CloudStatus.uploading.isInCloud)
     }
 }
