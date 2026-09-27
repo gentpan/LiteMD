@@ -16,7 +16,11 @@ guard !FileManager.default.fileExists(atPath: path) else {
     exit(73)
 }
 let key = Curve25519.Signing.PrivateKey()
-FileManager.default.createFile(atPath: path, contents: Data(key.rawRepresentation.base64EncodedString().utf8), attributes: [.posixPermissions: 0o600])
+// 写不进去时不能打印公钥：否则发布者会按一个没有对应私钥的公钥配置应用。
+guard FileManager.default.createFile(atPath: path, contents: Data(key.rawRepresentation.base64EncodedString().utf8), attributes: [.posixPermissions: 0o600]) else {
+    FileHandle.standardError.write(Data("could not write private key: \(path)\n".utf8))
+    exit(73)
+}
 print("Private key written to \(path)")
 print("Public key (LITEMD_UPDATE_PUBLIC_KEY):")
 print(key.publicKey.rawRepresentation.base64EncodedString())

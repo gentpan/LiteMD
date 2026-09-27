@@ -25,6 +25,9 @@ final class UpdateModel {
 
     /// 已准备好的新版本；退出获准后由 AppDelegate 替换。
     @ObservationIgnored private(set) var preparedApplication: URL?
+    /// 解压用的临时目录，安装完成或放弃安装后删除。
+    @ObservationIgnored private var preparedWorkspace: URL?
+    @ObservationIgnored private var installingItem: UpdateItem?
 
     private static let automaticKey = "updates.automaticallyCheck"
     private static let lastCheckKey = "updates.lastCheck"
@@ -133,12 +136,14 @@ final class UpdateModel {
     func install(_ item: UpdateItem) async {
         guard let checker else { return }
         phase = .installing
+        installingItem = item
         do {
             let data = try await checker.download(item)
-            let application = try await Task.detached(priority: .userInitiated) {
-                try Self.prepare(package: data, expectedVersion: item.version)
+            let prepared = try await Task.detached(priority: .userInitiated) {
+                try Self.prepare(package: data, expectedVersion: item.version, expectedBuild: item.build)
             }.value
-            preparedApplication = application
+            preparedApplication = prepared.application
+            preparedWorkspace = prepared.workspace
             AppModel.shared.relaunch()
         } catch let error as UpdateError {
             fail(Self.message(for: error))
@@ -149,7 +154,24 @@ final class UpdateModel {
         }
     }
 
+    /// 用户在退出前的“未保存”提示里点了取消：放弃这次安装，更新入口重新出现。
+    /// 不清掉的话，之后一次普通的 ⌘Q 会悄悄替换应用并重新打开。
+    func installationCancelled() {
+        guard preparedApplication != nil || phase == .installing else { return }
+        discardPreparedUpdate()
+        phase = installingItem.map(Phase.available) ?? .idle
+        installingItem = nil
+    }
+
+    private func discardPreparedUpdate() {
+        if let preparedWorkspace { try? FileManager.default.removeItem(at: preparedWorkspace) }
+        preparedApplication = nil
+        preparedWorkspace = nil
+    }
+
     private func fail(_ message: String) {
+        discardPreparedUpdate()
+        installingItem = nil
         phase = .failed(message)
         SystemIntegration.runAlert(
             title: String(localized: "The update could not be installed."),
@@ -162,11 +184,17 @@ final class UpdateModel {
         let message: String
     }
 
-    /// 解压安装包并校验：包含同一 Bundle ID、版本号一致、代码签名有效，且与当前应用属于同一开发者团队。
-    nonisolated static func prepare(package: Data, expectedVersion: String) throws -> URL {
+    /// 解压安装包并校验：包含同一 Bundle ID、版本号与构建号一致、代码签名有效，
+    /// 并且由与当前应用相同的开发者团队用 Apple 签发的证书签名。
+    nonisolated static func prepare(package: Data, expectedVersion: String, expectedBuild: String?) throws -> (application: URL, workspace: URL) {
         let current = Bundle.main.bundleURL
-        guard FileManager.default.isWritableFile(atPath: current.deletingLastPathComponent().path) else {
+        // 把应用包移到别的目录，除了上级目录还需要应用包本身可写。
+        guard FileManager.default.isWritableFile(atPath: current.deletingLastPathComponent().path),
+              FileManager.default.isWritableFile(atPath: current.path) else {
             throw InstallError(message: String(localized: "LiteMD cannot replace itself in “\(current.deletingLastPathComponent().path)”. Move LiteMD to the Applications folder and try again."))
+        }
+        guard let team = teamIdentifier(of: current) else {
+            throw InstallError(message: String(localized: "The code signature of the update could not be verified."))
         }
 
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("LiteMD-Update-\(UUID().uuidString)", isDirectory: true)
@@ -185,13 +213,14 @@ final class UpdateModel {
         guard let application = try FileManager.default.contentsOfDirectory(at: extracted, includingPropertiesForKeys: nil).first(where: { $0.pathExtension == "app" }),
               let bundle = Bundle(url: application),
               bundle.bundleIdentifier == Bundle.main.bundleIdentifier,
-              bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == expectedVersion else {
+              bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == expectedVersion,
+              expectedBuild == nil || bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String == expectedBuild else {
             throw InstallError(message: String(localized: "The update package does not contain the expected version of LiteMD."))
         }
-        guard codeSignatureIsValid(application), teamIdentifier(of: application) == teamIdentifier(of: current) else {
+        guard isSigned(application, byTeam: team) else {
             throw InstallError(message: String(localized: "The code signature of the update could not be verified."))
         }
-        return application
+        return (application, workspace)
     }
 
     nonisolated private static func staticCode(_ url: URL) -> SecStaticCode? {
@@ -200,9 +229,15 @@ final class UpdateModel {
         return code
     }
 
-    nonisolated static func codeSignatureIsValid(_ url: URL) -> Bool {
-        guard let code = staticCode(url) else { return false }
-        return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate), nil) == errSecSuccess
+    /// 代码签名有效，且证书链到 Apple、叶证书属于指定团队。
+    /// 只比较签名信息里的团队 ID 不够：那个字段没有经过证书链校验，ad-hoc 签名时两边都是 nil 也会“相等”。
+    nonisolated static func isSigned(_ url: URL, byTeam team: String) -> Bool {
+        guard !team.isEmpty, team.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }),
+              let code = staticCode(url) else { return false }
+        var requirement: SecRequirement?
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"" as CFString
+        guard SecRequirementCreateWithString(text, [], &requirement) == errSecSuccess else { return false }
+        return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate), requirement) == errSecSuccess
     }
 
     nonisolated static func teamIdentifier(of url: URL) -> String? {
@@ -213,33 +248,21 @@ final class UpdateModel {
         return dictionary[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
-    /// 当前进程退出后替换应用包并重新打开。旧版本移到临时目录，替换失败时放回原处。
+    /// 退出获准后安排安装。准备好的应用在临时目录里放了一段时间，替换前再校验一次签名，
+    /// 不完整或被改动过就放弃安装，只重新打开当前版本。
     func scheduleInstallation() {
         guard let preparedApplication else { return }
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let target = Bundle.main.bundleURL.path
-        let backup = FileManager.default.temporaryDirectory.appendingPathComponent("LiteMD-Previous-\(UUID().uuidString).app").path
-        let script = """
-        while kill -0 "$0" 2>/dev/null; do sleep 0.2; done
-        if mv "$1" "$3"; then
-          if mv "$2" "$1"; then
-            /usr/bin/open "$1"
-          else
-            mv "$3" "$1"
-            /usr/bin/open "$1"
-          fi
-        fi
-        """
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", script, String(pid), target, preparedApplication.path, backup]
-        try? process.run()
+        let current = Bundle.main.bundleURL
+        if let team = Self.teamIdentifier(of: current), Self.isSigned(preparedApplication, byTeam: team) {
+            SystemIntegration.relaunchAfterExit(installing: preparedApplication, cleaningUp: preparedWorkspace)
+        } else {
+            discardPreparedUpdate()
+            SystemIntegration.relaunchAfterExit()
+        }
     }
 
     static func message(for error: UpdateError) -> String {
         switch error {
-        case .notConfigured:
-            String(localized: "This copy of LiteMD was not built with an update source.")
         case .invalidFeed:
             String(localized: "The update information could not be read.")
         case .network(let message):

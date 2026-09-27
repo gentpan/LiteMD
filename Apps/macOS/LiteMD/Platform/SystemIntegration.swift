@@ -128,6 +128,30 @@ enum SystemIntegration {
         return response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
     }
 
+    /// 当前进程退出后重新打开应用；`prepared` 不为空时先用它替换当前应用包。
+    ///
+    /// 旧版本先移到临时目录，新版本放不进去就挪回原处；无论成功与否都会重新打开应用。
+    /// 新旧两份都还在的时候（原位置已经有应用）才清理临时文件，避免把唯一的一份删掉。
+    static func relaunchAfterExit(installing prepared: URL? = nil, cleaningUp workspace: URL? = nil) {
+        let target = Bundle.main.bundleURL.path
+        let backup = prepared == nil ? "" : FileManager.default.temporaryDirectory.appendingPathComponent("LiteMD-Previous-\(UUID().uuidString).app").path
+        let script = """
+        while kill -0 "$0" 2>/dev/null; do sleep 0.2; done
+        if [ -n "$2" ] && mv "$1" "$3"; then
+          mv "$2" "$1" || mv "$3" "$1"
+        fi
+        /usr/bin/open "$1"
+        if [ -d "$1" ]; then
+          [ -n "$3" ] && rm -rf "$3"
+          [ -n "$4" ] && rm -rf "$4"
+        fi
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script, String(ProcessInfo.processInfo.processIdentifier), target, prepared?.path ?? "", backup, workspace?.path ?? ""]
+        try? process.run()
+    }
+
     static func present(_ error: LiteMDError) {
         runAlert(title: error.localizedTitle, message: error.localizedMessage, buttons: [String(localized: "OK")], details: error.technicalDetails)
     }

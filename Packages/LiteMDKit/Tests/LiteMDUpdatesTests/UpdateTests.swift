@@ -6,8 +6,9 @@ import Testing
 final class FakeTransport: UpdateTransport, @unchecked Sendable {
     var files: [URL: Data] = [:]
 
-    func data(from url: URL) async throws -> Data {
+    func data(from url: URL, limit: Int64) async throws -> Data {
         guard let data = files[url] else { throw UpdateError.network("HTTP 404") }
+        guard Int64(data.count) <= limit else { throw UpdateError.lengthMismatch(expected: limit, actual: Int64(data.count)) }
         return data
     }
 }

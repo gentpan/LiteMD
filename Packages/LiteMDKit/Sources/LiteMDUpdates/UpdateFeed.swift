@@ -11,10 +11,11 @@ import Foundation
 ///   "url": "https://example.com/LiteMD-0.2.0.zip",
 ///   "length": 12345678,
 ///   "signature": "<Ed25519 签名，Base64>",
-///   "notes": { "en": "…", "zh-Hans": "…" },
-///   "publishedAt": "2026-09-17T12:00:00Z"
+///   "notes": { "en": "…", "zh-Hans": "…" }
 /// }
 /// ```
+///
+/// 签名只覆盖安装包本身。清单里的版本号与构建号在安装前还会和包内 Info.plist 逐项核对。
 public struct UpdateItem: Codable, Equatable, Sendable {
     public var version: String
     public var build: String?
@@ -23,9 +24,8 @@ public struct UpdateItem: Codable, Equatable, Sendable {
     public var length: Int64
     public var signature: String
     public var notes: [String: String]?
-    public var publishedAt: Date?
 
-    public init(version: String, build: String? = nil, minimumSystemVersion: String? = nil, url: URL, length: Int64, signature: String, notes: [String: String]? = nil, publishedAt: Date? = nil) {
+    public init(version: String, build: String? = nil, minimumSystemVersion: String? = nil, url: URL, length: Int64, signature: String, notes: [String: String]? = nil) {
         self.version = version
         self.build = build
         self.minimumSystemVersion = minimumSystemVersion
@@ -33,18 +33,14 @@ public struct UpdateItem: Codable, Equatable, Sendable {
         self.length = length
         self.signature = signature
         self.notes = notes
-        self.publishedAt = publishedAt
     }
 
     public static func decode(_ data: Data) throws -> UpdateItem {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(UpdateItem.self, from: data)
+        try JSONDecoder().decode(UpdateItem.self, from: data)
     }
 
     public func encoded() throws -> Data {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(self)
     }
@@ -62,17 +58,13 @@ public struct UpdateItem: Codable, Equatable, Sendable {
 }
 
 /// 版本比较：`1.10.0` > `1.9.2`；主版本相同时比较构建号。
-public struct AppVersion: Comparable, Sendable, CustomStringConvertible {
+public struct AppVersion: Comparable, Sendable {
     public var components: [Int]
     public var build: Int?
 
     public init(_ version: String, build: String? = nil) {
         components = version.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
         self.build = build.flatMap { Int($0) }
-    }
-
-    public var description: String {
-        components.map(String.init).joined(separator: ".")
     }
 
     public static func < (lhs: AppVersion, rhs: AppVersion) -> Bool {
@@ -91,7 +83,6 @@ public struct AppVersion: Comparable, Sendable, CustomStringConvertible {
 }
 
 public enum UpdateError: Error, Equatable, Sendable {
-    case notConfigured
     case invalidFeed
     case network(String)
     case lengthMismatch(expected: Int64, actual: Int64)
@@ -116,25 +107,34 @@ public enum UpdateSignature {
 }
 
 public protocol UpdateTransport: Sendable {
-    func data(from url: URL) async throws -> Data
+    /// 下载内容；超过 `limit` 字节时抛出错误，不把它读进内存。
+    func data(from url: URL, limit: Int64) async throws -> Data
 }
 
 public struct URLSessionUpdateTransport: UpdateTransport {
     public init() {}
 
-    public func data(from url: URL) async throws -> Data {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+    /// 先下载到临时文件，确认大小不超过上限再读入内存：清单里的 `length` 没有签名，
+    /// 不能靠它防止被塞一个超大的文件。
+    public func data(from url: URL, limit: Int64) async throws -> Data {
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 60)
+        let (file, response) = try await URLSession.shared.download(for: request)
+        defer { try? FileManager.default.removeItem(at: file) }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw UpdateError.network("HTTP \(http.statusCode)")
         }
-        return data
+        let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard size <= limit else { throw UpdateError.lengthMismatch(expected: limit, actual: size) }
+        return try Data(contentsOf: file)
     }
 }
 
 /// 检查与下载更新。只有签名有效、长度一致的安装包才会返回。
 public struct UpdateChecker: Sendable {
+    /// 更新清单与安装包的大小上限。
+    static let maximumFeedSize: Int64 = 1024 * 1024
+    static let maximumPackageSize: Int64 = 512 * 1024 * 1024
+
     public var feedURL: URL
     public var publicKey: String
     public var transport: any UpdateTransport
@@ -149,7 +149,7 @@ public struct UpdateChecker: Sendable {
     public func availableUpdate(currentVersion: String, currentBuild: String?, systemVersion: OperatingSystemVersion) async throws(UpdateError) -> UpdateItem? {
         let data: Data
         do {
-            data = try await transport.data(from: feedURL)
+            data = try await transport.data(from: feedURL, limit: Self.maximumFeedSize)
         } catch let error as UpdateError {
             throw error
         } catch {
@@ -167,9 +167,10 @@ public struct UpdateChecker: Sendable {
 
     /// 下载并校验安装包。
     public func download(_ item: UpdateItem) async throws(UpdateError) -> Data {
+        guard item.length > 0, item.length <= Self.maximumPackageSize else { throw .invalidFeed }
         let data: Data
         do {
-            data = try await transport.data(from: item.url)
+            data = try await transport.data(from: item.url, limit: item.length)
         } catch let error as UpdateError {
             throw error
         } catch {

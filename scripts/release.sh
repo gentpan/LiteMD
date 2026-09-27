@@ -21,6 +21,8 @@ IDENTITY="${SIGNING_IDENTITY:-Developer ID Application}"
 UPDATES=0
 if [[ -n "${UPDATE_PRIVATE_KEY:-}" && -n "${UPDATE_PUBLIC_KEY:-}" && -n "${DOWNLOAD_BASE_URL:-}" ]]; then
   UPDATES=1
+  # 先核对密钥配对，别等构建和公证跑完才发现。
+  swift scripts/sign-update.swift --verify-key "$UPDATE_PRIVATE_KEY" "$UPDATE_PUBLIC_KEY"
 fi
 
 OUTPUT="build/release"
