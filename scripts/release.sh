@@ -96,6 +96,11 @@ if [[ $UPDATES == 1 ]]; then
   swift scripts/sign-update.swift "$UPDATE_PRIVATE_KEY" "$ZIP" "$VERSION" "$BUILD" "$DOWNLOAD_BASE_URL/$(basename "$ZIP")" "$MINIMUM" ${RELEASE_NOTES:+"$RELEASE_NOTES"} > "$OUTPUT/appcast.json"
 fi
 
+# 中间产物 LiteMD.app 已经装进 DMG 和 ZIP 了。留着它，Spotlight 和“打开方式”里就会多出一个 LiteMD。
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
+"$LSREGISTER" -u "$PWD/$APP" 2>/dev/null || true
+rm -rf "$APP"
+
 echo
 echo "Done:"
 echo "  $DMG"
