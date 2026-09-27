@@ -558,6 +558,27 @@ struct RecoveryTests {
         #expect(env.directory.read(url) == "saved")
     }
 
+    /// 崩溃后原文件被其他程序改成 LF：恢复的内容仍按编辑时的换行符保存。
+    @Test func recoveryKeepsLineEndingsOfEditedFile() async throws {
+        let env = TestEnvironment()
+        let url = env.directory.file("a.md", "one\r\ntwo")
+        let document = try await env.service.openDocument(at: url)
+        document.type(" edited")
+        env.service.noteTextDidChange(document, isComposing: false)
+        let recoveryURL = env.recoveryDirectory.url
+        #expect(await waitUntil { await FileRecoveryStore(directory: recoveryURL).entries().count == 1 })
+
+        try externalWrite("one\ntwo", to: url)
+        let relaunched = DocumentService(fileSystem: LocalFileSystem(), parser: LiteMDMarkdownParserStub(), recoveryStore: FileRecoveryStore(directory: recoveryURL))
+        relaunched.isAutosaveEnabled = false
+        let failures = await relaunched.recover(await relaunched.pendingRecoveryEntries())
+        #expect(failures.isEmpty)
+
+        let recovered = try #require(relaunched.documents.first)
+        #expect(recovered.text == "one\ntwo edited")
+        #expect(recovered.fileReference?.lineEnding == .crlf)
+    }
+
     @Test func savingRemovesRecoverySnapshot() async throws {
         let env = TestEnvironment()
         let url = env.directory.file("a.md", "x")

@@ -49,6 +49,20 @@ struct AssetServiceTests {
         #expect(result.markdownPath.hasPrefix("media/2026/image-"))
     }
 
+    /// 失败时按图片插入报告，而不是“无法打开 image-….png”。
+    @Test func failuresAreReportedAsAssetErrors() async throws {
+        let document = directory.file("doc/a.md", "")
+        // assets 被一个普通文件占用，图片无法写入。
+        directory.file("doc/assets", "not a folder")
+
+        do {
+            _ = try await service.importImageData(Data([1]), fileExtension: "png", forDocumentAt: document, location: AssetLocation())
+            Issue.record("import should fail")
+        } catch {
+            #expect(error.kind == .asset)
+        }
+    }
+
     @Test func relativePaths() {
         let base = URL(fileURLWithPath: "/a/b/c")
         #expect(AssetService.relativePath(from: base, to: URL(fileURLWithPath: "/a/b/c/d.png")) == "d.png")
@@ -112,6 +126,53 @@ struct WorkspaceServiceTests {
         await #expect(throws: LiteMDError.self) {
             try await workspace.move(folder, into: folder)
         }
+    }
+
+    /// 重名等失败按文件夹操作报告，而不是“无法打开 b.md”。
+    @Test func failedOperationsAreReportedAsWorkspaceErrors() async throws {
+        let directory = TemporaryDirectory()
+        let a = directory.file("a.md", "a")
+        directory.file("b.md", "b")
+        let workspace = WorkspaceService(fileSystem: LocalFileSystem())
+        try await workspace.open(directory.url)
+
+        do {
+            try await workspace.rename(a, to: "b")
+            Issue.record("rename should fail")
+        } catch {
+            #expect(error.kind == .workspace)
+            #expect(error.reason == .alreadyExists)
+        }
+        do {
+            try await workspace.move(a, into: directory.file("missing"))
+            Issue.record("move should fail")
+        } catch {
+            #expect(error.kind == .workspace)
+        }
+        #expect(directory.read(a) == "a")
+    }
+
+    /// 同一目录的两次读取交错返回时，较早的结果不能覆盖较新的结果。
+    @Test func staleDirectoryListingIsDiscarded() async throws {
+        let directory = TemporaryDirectory()
+        directory.file("a.md", "")
+        let fileSystem = GatedFileSystem()
+        let workspace = WorkspaceService(fileSystem: fileSystem)
+        try await workspace.open(directory.url)
+        let root = try #require(workspace.root)
+
+        fileSystem.holdNextDirectoryListing()
+        let stale = Task { try await workspace.loadChildren(of: root) }
+        #expect(await waitUntil { fileSystem.heldListingCount == 1 })
+
+        directory.file("b.md", "")
+        try await workspace.loadChildren(of: root)
+        #expect(root.children?.map(\.name) == ["a.md", "b.md"])
+
+        fileSystem.releaseDirectoryListings()
+        try await stale.value
+        #expect(root.children?.map(\.name) == ["a.md", "b.md"])
+        #expect(!root.isLoading)
     }
 
     @Test func renamingOpenDocumentUpdatesItsPath() async throws {

@@ -6,7 +6,7 @@ struct UniqueItemNaming {
     /// 基础名称与序号之间的分隔符。
     var separator: String
     var maximumAttempts: Int
-    /// 找不到可用名称时报告的错误类别。
+    /// 创建失败时报告的错误类别。
     var errorKind: LiteMDError.Kind
 
     /// 文件树：`Untitled 2`、`Untitled 3`…
@@ -31,6 +31,8 @@ struct UniqueItemNaming {
                 return url.standardizedFileURL
             } catch where error.reason == .alreadyExists {
                 continue
+            } catch {
+                throw error.with(kind: errorKind)
             }
         }
         throw LiteMDError(kind: errorKind, reason: .alreadyExists, fileName: baseName)

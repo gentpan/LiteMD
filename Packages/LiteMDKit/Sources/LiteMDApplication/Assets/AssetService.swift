@@ -122,6 +122,8 @@ public final class AssetService: Sendable {
                 try await fileSystem.createDirectory(at: url)
             } catch where error.reason == .alreadyExists {
                 continue
+            } catch {
+                throw error.with(kind: .asset)
             }
         }
     }

@@ -15,6 +15,8 @@ public final class WorkspaceNode: Identifiable {
     public internal(set) var isLoading = false
     /// iCloud 状态（普通本地文件为 `.local`）。
     public internal(set) var cloudStatus: CloudStatus = .local
+    /// 每次读取子节点加一。展开与刷新可能同时读取同一目录，只采用最后一次开始的结果。
+    @ObservationIgnored var loadGeneration = 0
 
     @ObservationIgnored
     public internal(set) weak var parent: WorkspaceNode?
@@ -84,10 +86,16 @@ public final class WorkspaceService {
 
     public func loadChildren(of node: WorkspaceNode) async throws(LiteMDError) {
         guard node.isDirectory else { return }
+        node.loadGeneration += 1
+        let generation = node.loadGeneration
         node.isLoading = true
-        defer { node.isLoading = false }
+        defer {
+            if node.loadGeneration == generation { node.isLoading = false }
+        }
 
         let entries = try await fileSystem.contentsOfDirectory(at: node.url, rules: rules)
+        // 读取期间又开始了新的读取：这份结果已经过时，丢弃。
+        guard node.loadGeneration == generation else { return }
         // 文件树只显示 Markdown / 文本文件与图片。
         let visible = entries.filter { entry in
             entry.isDirectory || MarkdownFileType.isDocument(entry.url) || MarkdownFileType.isImage(entry.url)
@@ -225,7 +233,7 @@ public final class WorkspaceService {
 
         let destination = url.deletingLastPathComponent().appendingPathComponent(name)
         guard destination.path != url.path else { return url }
-        try await fileSystem.moveItem(from: url, to: destination)
+        try await workspaceOperation { () throws(LiteMDError) in try await fileSystem.moveItem(from: url, to: destination) }
         onItemMoved?(url, destination)
         await refreshDirectory(url.deletingLastPathComponent())
         invalidateFileIndex()
@@ -242,7 +250,7 @@ public final class WorkspaceService {
         guard source.deletingLastPathComponent().path != target.path else { return source }
 
         let destination = target.appendingPathComponent(source.lastPathComponent)
-        try await fileSystem.moveItem(from: source, to: destination)
+        try await workspaceOperation { () throws(LiteMDError) in try await fileSystem.moveItem(from: source, to: destination) }
         onItemMoved?(source, destination)
         await refreshDirectory(source.deletingLastPathComponent())
         await refreshDirectory(target)
@@ -263,13 +271,22 @@ public final class WorkspaceService {
     }
 
     public func trash(_ url: URL) async throws(LiteMDError) {
-        try await fileSystem.trashItem(at: url)
+        try await workspaceOperation { () throws(LiteMDError) in try await fileSystem.trashItem(at: url) }
         onItemTrashed?(url)
         await refreshDirectory(url.deletingLastPathComponent())
         invalidateFileIndex()
     }
 
     // MARK: Helpers
+
+    /// 文件树操作失败时按 `.workspace` 报告（“文件夹操作未能完成”），而不是“无法打开某文件”。
+    private func workspaceOperation(_ operation: () async throws(LiteMDError) -> Void) async throws(LiteMDError) {
+        do {
+            try await operation()
+        } catch {
+            throw error.with(kind: .workspace)
+        }
+    }
 
     static func isValidFileName(_ name: String) -> Bool {
         !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains(":") && name.utf8.count <= 255
