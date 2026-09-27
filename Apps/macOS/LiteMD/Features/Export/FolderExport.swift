@@ -150,7 +150,7 @@ struct FolderExportView: View {
 extension AppModel {
     /// 选择导出位置后开始批量导出。文件夹里没有文档时直接提示，不弹出进度面板。
     func exportFolder(_ url: URL, as format: ExportFormat) {
-        guard let destination = SystemIntegration.chooseExportFolder(startingAt: url.deletingLastPathComponent()) else { return }
+        guard !isPresentingSheet, let destination = SystemIntegration.chooseExportFolder(startingAt: url.deletingLastPathComponent()) else { return }
         folderExportRequest = FolderExportRequest(source: url, destination: destination, format: format)
     }
 
@@ -194,7 +194,7 @@ extension AppModel {
     }
 
     /// 已经打开的文件用编辑器里的正文（包含未保存的修改），其余的读磁盘。
-    private func markdownForExport(of url: URL) async throws -> String {
+    func markdownForExport(of url: URL) async throws -> String {
         if let document = documents.documents.first(where: { $0.fileReference?.url == url }) {
             return document.text
         }

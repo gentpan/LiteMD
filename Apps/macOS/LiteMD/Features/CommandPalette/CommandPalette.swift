@@ -36,7 +36,7 @@ extension AppModel {
             PaletteCommand(id: "save", title: String(localized: "Save"), category: file, symbol: "square.and.arrow.down", shortcut: "⌘S", keywords: "save", isEnabled: hasDocument) { self.saveActiveDocument() },
             PaletteCommand(id: "saveAs", title: String(localized: "Save As…"), category: file, symbol: "square.and.arrow.down.on.square", shortcut: "⇧⌘S", keywords: "save as", isEnabled: hasDocument) { self.saveActiveDocumentAs() },
             PaletteCommand(id: "close", title: String(localized: "Close Tab"), category: file, symbol: "xmark", shortcut: "⌘W", keywords: "close tab", isEnabled: hasDocument) { self.closeActiveDocument() },
-            PaletteCommand(id: "reopen", title: String(localized: "Reopen Closed Tab"), category: file, symbol: "arrow.uturn.backward", shortcut: "⇧⌘T", keywords: "reopen closed tab") { self.reopenClosedDocument() },
+            PaletteCommand(id: "reopen", title: String(localized: "Reopen Closed Tab"), category: file, symbol: "arrow.uturn.backward", shortcut: "⇧⌘T", keywords: "reopen closed tab", isEnabled: documents.canReopenClosedDocument) { self.reopenClosedDocument() },
             PaletteCommand(id: "rename", title: String(localized: "Rename…"), category: file, symbol: "pencil", keywords: "rename", isEnabled: hasFile) { self.renameActiveDocument() },
             PaletteCommand(id: "reveal", title: String(localized: "Reveal in Finder"), category: file, symbol: "folder", shortcut: "⇧⌘R", keywords: "reveal finder show", isEnabled: hasFile) {
                 if let url = self.activeDocument?.fileReference?.url { SystemIntegration.revealInFinder(url) }

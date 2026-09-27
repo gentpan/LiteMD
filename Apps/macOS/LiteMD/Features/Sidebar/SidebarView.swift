@@ -263,7 +263,8 @@ struct FileTreeView: View {
                 } else if MarkdownFileType.isDocument(url) {
                     Task { await model.openDocument(url) }
                 } else {
-                    SystemIntegration.openExternally(url)
+                    // 单击就会触发：文件夹里的脚本或应用不能一点就运行。
+                    SystemIntegration.openLocalFile(url)
                 }
             }
         )
@@ -400,11 +401,7 @@ private struct FileTreeRow: View {
             Button("Rename…") { model.requestRename(node.url) }
             Button("Duplicate") { model.duplicate(node.url) }
             if MarkdownFileType.isDocument(node.url) {
-                Menu("Export") {
-                    ForEach(ExportFormat.allCases) { format in
-                        Button(format.displayName) { model.export(node.url, as: format) }
-                    }
-                }
+                ExportFormatMenu("Export") { model.export(node.url, as: $0) }
             }
             Divider()
             Button("Reveal in Finder") { SystemIntegration.revealInFinder(node.url) }
@@ -434,11 +431,7 @@ private struct WorkspaceContextMenu: View {
         Button("New Folder") { model.createFolder(in: directory) }
         Button("Refresh") { Task { await model.workspace.refreshAll() } }
         Divider()
-        Menu("Export Folder") {
-            ForEach(ExportFormat.allCases) { format in
-                Button(format.displayName) { model.exportFolder(directory, as: format) }
-            }
-        }
+        ExportFormatMenu("Export Folder") { model.exportFolder(directory, as: $0) }
     }
 }
 
@@ -602,7 +595,7 @@ struct SearchPanelView: View {
                             .buttonStyle(.plain)
                         }
                     } header: {
-                        Text(displayPath(result.url))
+                        Text(model.relativePath(for: result.url))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -619,12 +612,6 @@ struct SearchPanelView: View {
         }
     }
 
-    private func displayPath(_ url: URL) -> String {
-        guard let root = model.workspace.rootURL, model.workspace.contains(url) else {
-            return url.lastPathComponent
-        }
-        return String(url.path.dropFirst(root.path.count + 1))
-    }
 }
 
 private struct SearchMatchRow: View {

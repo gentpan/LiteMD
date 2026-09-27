@@ -79,17 +79,11 @@ final class PreviewWebView: WKWebView {
         "WKMenuItemIdentifierInspectElement",
     ]
 
-    var onExtraMenuItems: (() -> [NSMenuItem])?
-
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         for item in menu.items {
             if let identifier = item.identifier?.rawValue, Self.removedIdentifiers.contains(identifier) {
                 menu.removeItem(item)
             }
-        }
-        if let extra = onExtraMenuItems?(), !extra.isEmpty {
-            menu.addItem(.separator())
-            extra.forEach(menu.addItem)
         }
         menu.normalizeSeparators()
         super.willOpenMenu(menu, with: event)
@@ -107,6 +101,8 @@ final class PreviewController: NSObject, WKNavigationDelegate {
     private var renderedHTML: String?
     private var isPageLoaded = false
     private var pendingHTML: String?
+    /// 最近一次要显示的内容：网页进程崩溃后用它立即重新载入，不必等下一次编辑。
+    private var lastShown: (documentID: DocumentID, html: String, baseDirectory: URL)?
     private var pendingLine: Double?
     private var theme: ColorTheme = .defaultLight
     private var fonts: PreviewTemplate.Fonts = .system
@@ -150,6 +146,7 @@ final class PreviewController: NSObject, WKNavigationDelegate {
     }
 
     func show(documentID: DocumentID, html: String, baseDirectory: URL) {
+        lastShown = (documentID, html, baseDirectory)
         let baseURL = AssetSchemeHandler.baseURL(for: baseDirectory)
         previewLog.debug("Preview show document=\(documentID.description, privacy: .public) htmlLength=\(html.count) frame=\(self.webView.frame.debugDescription, privacy: .public) superview=\(self.webView.superview != nil)")
         if documentID != loadedDocumentID || baseURL != loadedBaseURL {
@@ -268,6 +265,9 @@ final class PreviewController: NSObject, WKNavigationDelegate {
         loadedDocumentID = nil
         loadedBaseURL = nil
         isPageLoaded = false
+        if let lastShown {
+            show(documentID: lastShown.documentID, html: lastShown.html, baseDirectory: lastShown.baseDirectory)
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

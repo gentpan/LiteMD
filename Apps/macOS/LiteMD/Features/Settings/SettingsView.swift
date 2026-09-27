@@ -188,7 +188,7 @@ private struct AppIconButton: View {
         Button(action: action) {
             VStack(spacing: Space.s2) {
                 Group {
-                    if let image = AppIconButton.image(for: option) {
+                    if let image = option.image {
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.high)
@@ -214,15 +214,6 @@ private struct AppIconButton: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    @MainActor private static var cache: [AppIconOption: NSImage] = [:]
-
-    @MainActor static func image(for option: AppIconOption) -> NSImage? {
-        if let cached = cache[option] { return cached }
-        guard let url = Bundle.main.url(forResource: option.resourceName, withExtension: "icns"),
-              let image = NSImage(contentsOf: url) else { return nil }
-        cache[option] = image
-        return image
-    }
 }
 
 private struct MarkdownSettings: View {

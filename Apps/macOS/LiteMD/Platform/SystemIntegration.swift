@@ -40,6 +40,24 @@ enum SystemIntegration {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
+    static func chooseRecording() -> URL? {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = AudioTranscriber.audioExtensions.compactMap { UTType(filenameExtension: $0) }
+        panel.message = String(localized: "Choose a recording to transcribe. Recognition runs on this Mac.")
+        panel.prompt = String(localized: "Transcribe")
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    static func chooseFonts() -> [URL] {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.font]
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Import")
+        return panel.runModal() == .OK ? panel.urls : []
+    }
+
     static func chooseRestoreLocation() -> URL? {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -101,6 +119,34 @@ enum SystemIntegration {
         NSWorkspace.shared.open(url)
     }
 
+    /// 打开文档里链接到的本地文件。链接可能来自别人写的文档：指向应用、脚本、安装包时，
+    /// 直接打开等于运行它，先问一句，默认按钮是“取消”。
+    static func openLocalFile(_ url: URL) {
+        if isRunnable(url) {
+            let choice = runAlert(
+                title: String(localized: "Open “\(url.lastPathComponent)”?"),
+                message: String(localized: "This link points to an app or script. Opening it will run it on your Mac."),
+                buttons: [String(localized: "Cancel"), String(localized: "Open")]
+            )
+            guard choice == 1 else { return }
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private static let runnableExtensions: Set<String> = [
+        "command", "tool", "terminal", "workflow", "action", "pkg", "mpkg",
+        "webloc", "inetloc", "fileloc", "jar", "prefpane", "mobileconfig",
+    ]
+
+    private static func isRunnable(_ url: URL) -> Bool {
+        if runnableExtensions.contains(url.pathExtension.lowercased()) { return true }
+        let values = try? url.resourceValues(forKeys: [.isApplicationKey, .isExecutableKey, .isDirectoryKey, .contentTypeKey])
+        if values?.isApplication == true { return true }
+        if values?.isExecutable == true, values?.isDirectory != true { return true }
+        guard let type = values?.contentType else { return false }
+        return [UTType.application, .executable, .script].contains { type.conforms(to: $0) }
+    }
+
     static func copyToPasteboard(_ string: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(string, forType: .string)
@@ -156,11 +202,18 @@ enum SystemIntegration {
         runAlert(title: error.localizedTitle, message: error.localizedMessage, buttons: [String(localized: "OK")], details: error.technicalDetails)
     }
 
-    static func present(_ error: any Error) {
+    /// 语音识别、打印、转换等不是 LiteMDError 的错误，显示它自己的说明，
+    /// 不能统一套成“无法打开文档”。
+    static func present(_ error: any Error, title: String? = nil) {
         if let error = error as? LiteMDError {
             present(error)
         } else {
-            present(LiteMDError(kind: .file, reason: .unknown, technicalDetails: String(describing: error)))
+            runAlert(
+                title: title ?? String(localized: "The operation could not be completed."),
+                message: error.localizedDescription,
+                buttons: [String(localized: "OK")],
+                details: String(describing: error)
+            )
         }
     }
 }

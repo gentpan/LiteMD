@@ -124,30 +124,13 @@ struct VersionHistoryView: View {
     }
 
     private var diffView: some View {
-        ScrollView([.vertical, .horizontal]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if selectedText != nil, lines.allSatisfy({ $0.kind == .same }) {
-                    Text("This version is identical to the current document.")
-                        .font(.system(size: TextSize.sm))
-                        .foregroundStyle(Color.textSecondary)
-                        .padding(Space.s4)
-                }
-                ForEach(lines) { line in
-                    HStack(spacing: Space.s2) {
-                        Text(verbatim: symbol(line.kind))
-                            .foregroundStyle(Color.textTertiary)
-                            .frame(width: Space.s4)
-                        Text(verbatim: line.text.isEmpty ? " " : line.text)
-                            .foregroundStyle(Color.textPrimary)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                    .font(.system(size: TextSize.sm, design: .monospaced))
-                    .padding(.horizontal, Space.s3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(background(line.kind))
-                }
+        DiffLinesView(lines: lines) {
+            if selectedText != nil, lines.allSatisfy({ $0.kind == .same }) {
+                Text("This version is identical to the current document.")
+                    .font(.system(size: TextSize.sm))
+                    .foregroundStyle(Color.textSecondary)
+                    .padding(Space.s4)
             }
-            .padding(.vertical, Space.s2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -171,22 +154,6 @@ struct VersionHistoryView: View {
             loadError = error.localizedMessage
         }
     }
-
-    private func symbol(_ kind: CompareView.DiffLine.Kind) -> String {
-        switch kind {
-        case .same: ""
-        case .removed: "−"
-        case .added: "+"
-        }
-    }
-
-    private func background(_ kind: CompareView.DiffLine.Kind) -> Color {
-        switch kind {
-        case .same: .clear
-        case .removed: .diffRemoved
-        case .added: .diffAdded
-        }
-    }
 }
 
 @MainActor
@@ -202,6 +169,7 @@ extension AppModel {
             )
             return
         }
+        guard !isPresentingSheet else { return }
         versionHistoryDocument = document
     }
 

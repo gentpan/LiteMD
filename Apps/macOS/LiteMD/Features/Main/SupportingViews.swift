@@ -295,6 +295,57 @@ enum FuzzyMatcher {
 
 // MARK: - Compare
 
+/// 逐行差异列表：比较磁盘版本与查看历史版本共用。`header` 显示在列表顶部。
+struct DiffLinesView<Header: View>: View {
+    let lines: [CompareView.DiffLine]
+    @ViewBuilder var header: () -> Header
+
+    var body: some View {
+        ScrollView([.vertical, .horizontal]) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                header()
+                ForEach(lines) { line in
+                    HStack(spacing: Space.s2) {
+                        Text(verbatim: symbol(line.kind))
+                            .foregroundStyle(Color.textTertiary)
+                            .frame(width: Space.s4)
+                        Text(verbatim: line.text.isEmpty ? " " : line.text)
+                            .foregroundStyle(Color.textPrimary)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .font(.system(size: TextSize.sm, design: .monospaced))
+                    .padding(.horizontal, Space.s3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(background(line.kind))
+                }
+            }
+            .padding(.vertical, Space.s2)
+        }
+    }
+
+    private func symbol(_ kind: CompareView.DiffLine.Kind) -> String {
+        switch kind {
+        case .same: ""
+        case .removed: "−"
+        case .added: "+"
+        }
+    }
+
+    private func background(_ kind: CompareView.DiffLine.Kind) -> Color {
+        switch kind {
+        case .same: .clear
+        case .removed: .diffRemoved
+        case .added: .diffAdded
+        }
+    }
+}
+
+extension DiffLinesView where Header == EmptyView {
+    init(lines: [CompareView.DiffLine]) {
+        self.init(lines: lines) { EmptyView() }
+    }
+}
+
 struct CompareView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -324,25 +375,7 @@ struct CompareView: View {
 
             Divider()
 
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(lines) { line in
-                        HStack(spacing: Space.s2) {
-                            Text(symbol(line.kind))
-                                .foregroundStyle(Color.textTertiary)
-                                .frame(width: Space.s4)
-                            Text(line.text.isEmpty ? " " : line.text)
-                                .foregroundStyle(Color.textPrimary)
-                                .fixedSize(horizontal: true, vertical: false)
-                        }
-                        .font(.system(size: TextSize.sm, design: .monospaced))
-                        .padding(.horizontal, Space.s3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(background(line.kind))
-                    }
-                }
-                .padding(.vertical, Space.s2)
-            }
+            DiffLinesView(lines: lines)
 
             Divider()
 
@@ -367,22 +400,6 @@ struct CompareView: View {
             let disk = request.diskText
             let local = request.localText
             lines = await Task.detached { Self.diff(old: disk, new: local) }.value
-        }
-    }
-
-    private func symbol(_ kind: DiffLine.Kind) -> String {
-        switch kind {
-        case .same: ""
-        case .removed: "−"
-        case .added: "+"
-        }
-    }
-
-    private func background(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .same: .clear
-        case .removed: .diffRemoved
-        case .added: .diffAdded
         }
     }
 

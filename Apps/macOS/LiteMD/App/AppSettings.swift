@@ -25,6 +25,7 @@ final class AppSettings {
     /// 系统当前是否为深色外观（外观模式为“跟随系统”时使用）。
     var systemIsDark: Bool = SystemAppearance.isDark { didSet { if systemIsDark != oldValue { onChange?() } } }
     var appIcon: AppIconOption { didSet { store(appIcon.rawValue, .appearanceAppIcon) } }
+    @ObservationIgnored private var appliedAppIcon: AppIconOption?
     var showFormattingToolbar: Bool { didSet { store(showFormattingToolbar, .editorShowToolbar) } }
 
     /// 界面语言。写入本应用的 `AppleLanguages`，重启后生效。
@@ -260,10 +261,24 @@ final class AppSettings {
     }
 
     /// 替换 Dock 中的应用图标（应用运行期间生效；不修改应用包，保证代码签名完整）。
+    /// 每次改设置都会调用：图标没变就不重读 .icns、不重设 Dock。
     func applyAppIcon() {
-        guard let url = Bundle.main.url(forResource: appIcon.resourceName, withExtension: "icns"),
-              let image = NSImage(contentsOf: url) else { return }
+        guard appIcon != appliedAppIcon, let image = appIcon.image else { return }
+        appliedAppIcon = appIcon
         NSApp.applicationIconImage = image
+    }
+}
+
+extension AppIconOption {
+    @MainActor private static var imageCache: [AppIconOption: NSImage] = [:]
+
+    /// 应用包里对应的 .icns（Dock 与设置页的图标选择共用，读一次后缓存）。
+    @MainActor var image: NSImage? {
+        if let cached = Self.imageCache[self] { return cached }
+        guard let url = Bundle.main.url(forResource: resourceName, withExtension: "icns"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        Self.imageCache[self] = image
+        return image
     }
 }
 

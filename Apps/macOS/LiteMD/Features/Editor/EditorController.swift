@@ -107,8 +107,11 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     private var lineStartsCache: (revision: Int, starts: [Int])?
     private var lastInsetWidth: CGFloat = -1
     private var lastInsetHeight: CGFloat = -1
-    /// 专注模式下当前未变淡的区间。
+    /// 专注模式下当前未变淡的区间；nil 表示需要重新计算。
     private var focusedRange: NSRange?
+    /// 是否加过变淡效果。关闭专注模式时靠它判断要不要清除，不能靠 focusedRange：
+    /// 排版设置变化和文字编辑都会把 focusedRange 置空。
+    private var hasFocusDimming = false
     /// `[[` 自动补全的候选（异步取得后缓存）。
     private var wikiCandidates: [String] = []
     /// 实时预览：隐藏非当前行的语法标记，标题放大，显示图片、代码块底色等。
@@ -389,7 +392,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         guard caret >= 2, caret <= string.length, string.substring(with: NSRange(location: caret - 2, length: 2)) == "[[",
               let model else { return }
         Task { [weak self] in
-            let names = await model.wikiLinkCompletions(prefix: "")
+            let names = await model.wikiLinkCompletions()
             guard let self, !names.isEmpty, self.wikiCompletionRange() != nil else { return }
             self.wikiCandidates = names
             self.textView.complete(nil)
@@ -401,11 +404,12 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         let partial = (textView.string as NSString).substring(with: charRange).lowercased()
         let matches = wikiCandidates.filter { partial.isEmpty || $0.lowercased().contains(partial) }
         index?.pointee = matches.isEmpty ? -1 : 0
-        return matches.sorted { lhs, rhs in
+        let sorted = matches.sorted { lhs, rhs in
             let lhsPrefix = lhs.lowercased().hasPrefix(partial)
             let rhsPrefix = rhs.lowercased().hasPrefix(partial)
             return lhsPrefix != rhsPrefix ? lhsPrefix : lhs.localizedStandardCompare(rhs) == .orderedAscending
         }
+        return Array(sorted.prefix(50))
     }
 
     // MARK: Focus & typewriter
@@ -444,23 +448,27 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             return NSTextRange(location: start, end: end)
         }
 
-        guard settings?.focusMode == true, !textView.hasMarkedText() else {
-            if focusedRange != nil {
+        // 输入法组字期间保持现状，避免变淡效果来回闪。
+        guard !textView.hasMarkedText() else { return }
+        guard settings?.focusMode == true else {
+            if hasFocusDimming {
                 layoutManager.removeRenderingAttribute(.foregroundColor, for: contentManager.documentRange)
-                focusedRange = nil
+                hasFocusDimming = false
             }
+            focusedRange = nil
             return
         }
         let block = currentBlockRange()
         guard block != focusedRange else { return }
         focusedRange = block
+        hasFocusDimming = true
         layoutManager.removeRenderingAttribute(.foregroundColor, for: contentManager.documentRange)
-        let dimmed: [NSAttributedString.Key: Any] = [.foregroundColor: Palette.textTertiary.withAlphaComponent(0.6)]
+        let dimmed = Palette.textTertiary.withAlphaComponent(0.6)
         if block.location > 0, let before = textRange(NSRange(location: 0, length: block.location)) {
-            layoutManager.addRenderingAttribute(.foregroundColor, value: dimmed[.foregroundColor]!, for: before)
+            layoutManager.addRenderingAttribute(.foregroundColor, value: dimmed, for: before)
         }
         if NSMaxRange(block) < length, let after = textRange(NSRange(location: NSMaxRange(block), length: length - NSMaxRange(block))) {
-            layoutManager.addRenderingAttribute(.foregroundColor, value: dimmed[.foregroundColor]!, for: after)
+            layoutManager.addRenderingAttribute(.foregroundColor, value: dimmed, for: after)
         }
     }
 

@@ -242,11 +242,7 @@ private struct TabItemView: View {
                     model.documents.activeDocumentID = document.id
                     model.showVersionHistory()
                 }
-                Menu("Export") {
-                    ForEach(ExportFormat.allCases) { format in
-                        Button(format.displayName) { model.export(url, as: format) }
-                    }
-                }
+                ExportFormatMenu("Export") { model.export(url, as: $0) }
                 Button("Reveal in Finder") { SystemIntegration.revealInFinder(url) }
                 Button("Copy Path") { SystemIntegration.copyToPasteboard(url.path) }
             }

@@ -17,13 +17,18 @@ final class BacklinksModel {
 
     func refresh(for url: URL?) {
         task?.cancel()
+        let isSameDocument = url == documentURL
         documentURL = url
         guard let url, let model, let root = model.workspace.rootURL else {
             backlinks = []
             isLoading = false
             return
         }
-        isLoading = true
+        // 同一个文档因为文件变化（包括自己的自动保存）重新计算时，保留旧结果、不显示加载状态，
+        // 否则每保存一次反向链接区域就闪一下。
+        if !isSameDocument {
+            isLoading = true
+        }
         task = Task { [weak self] in
             // 连续切换文档时只计算最后一个。
             try? await Task.sleep(for: .milliseconds(150))
@@ -83,20 +88,28 @@ extension AppModel {
             )
             return
         }
+        // `[[notes/Idea]]` 建在 notes 子文件夹里，这样链接才能解析到它；`.` 与 `..` 丢弃，不会建到文件夹外面。
+        let components = target.split(separator: "/")
+            .map { WikiLinkResolver.fileName(for: String($0)) }
+            .filter { $0 != "." && $0 != ".." }
+        guard let name = components.last else { return }
+        let folder = components.dropLast().reduce(directory) { $0.appendingPathComponent($1) }
+        let relativeName = (components.dropLast() + [name + ".md"]).joined(separator: "/")
+
         let choice = SystemIntegration.runAlert(
             title: String(localized: "“\(target)” does not exist yet."),
-            message: String(localized: "Create a new note named “\(WikiLinkResolver.fileName(for: target)).md” in “\(directory.lastPathComponent)”?"),
+            message: String(localized: "Create a new note named “\(relativeName)” in “\(directory.lastPathComponent)”?"),
             buttons: [String(localized: "Create Note"), String(localized: "Cancel")],
             style: .informational
         )
         guard choice == 0 else { return }
 
-        let name = WikiLinkResolver.fileName(for: (target as NSString).lastPathComponent)
-        let url = directory.appendingPathComponent(name).appendingPathExtension("md")
+        let url = folder.appendingPathComponent(name).appendingPathExtension("md")
         do {
-            let title = (target as NSString).lastPathComponent
-            try await fileSystem.createFile(at: url, contents: Data("# \(title)\n\n".utf8))
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try await fileSystem.createFile(at: url, contents: Data("# \(name)\n\n".utf8))
             await workspace.refreshDirectory(directory)
+            await workspace.refreshDirectory(folder)
             workspace.invalidateMarkdownFileCache()
             await openDocument(url)
         } catch {
@@ -104,31 +117,21 @@ extension AppModel {
         }
     }
 
-    /// 双链自动补全的候选：Workspace 中的笔记名（重名时带目录）。
-    func wikiLinkCompletions(prefix: String) async -> [String] {
-        guard let root = workspace.rootURL else { return [] }
+    /// 双链自动补全的全部候选：Workspace 中的笔记名（重名时带目录）。
+    /// 按输入筛选、排序由编辑器负责；这里不能截断，否则按字母排在后面的笔记永远补全不出来。
+    func wikiLinkCompletions() async -> [String] {
+        guard workspace.rootURL != nil else { return [] }
         let files = await workspace.allMarkdownFiles()
         var counts: [String: Int] = [:]
         for file in files {
             counts[file.deletingPathExtension().lastPathComponent.lowercased(), default: 0] += 1
         }
-        let needle = prefix.lowercased()
         let names = files.map { file -> String in
             let name = file.deletingPathExtension().lastPathComponent
             guard counts[name.lowercased(), default: 0] > 1 else { return name }
-            let relative = String(file.deletingPathExtension().standardizedFileURL.path.dropFirst(root.standardizedFileURL.path.count + 1))
-            return relative
+            return relativePath(for: file.deletingPathExtension())
         }
         return Array(Set(names))
-            .filter { needle.isEmpty || $0.lowercased().contains(needle) }
-            .sorted { lhs, rhs in
-                let lhsPrefix = lhs.lowercased().hasPrefix(needle)
-                let rhsPrefix = rhs.lowercased().hasPrefix(needle)
-                if lhsPrefix != rhsPrefix { return lhsPrefix }
-                return lhs.localizedStandardCompare(rhs) == .orderedAscending
-            }
-            .prefix(50)
-            .map { $0 }
     }
 }
 

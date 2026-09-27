@@ -122,14 +122,11 @@ private struct CustomFontsSection: View {
     }
 
     private func importFromFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.font]
-        panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Import")
-        guard panel.runModal() == .OK else { return }
+        let urls = SystemIntegration.chooseFonts()
+        guard !urls.isEmpty else { return }
 
         failure = nil
-        for url in panel.urls {
+        for url in urls {
             do {
                 try model.customFonts.importFont(from: url)
             } catch {

@@ -1839,6 +1839,23 @@
         }
       }
     },
+    "Could not print “%@”.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not print “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打印“%@”。"
+          }
+        }
+      }
+    },
     "Create Note": {
       "extractionState": "manual",
       "localizations": {
@@ -1856,19 +1873,19 @@
         }
       }
     },
-    "Create a new note named “%@.md” in “%@”?": {
+    "Create a new note named “%@” in “%@”?": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create a new note named “%1$@.md” in “%2$@”?"
+            "value": "Create a new note named “%@” in “%@”?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要在“%2$@”中新建笔记“%1$@.md”吗？"
+            "value": "要在“%2$@”中新建笔记“%1$@”吗？"
           }
         }
       }
@@ -4883,6 +4900,23 @@
         }
       }
     },
+    "Open “%@”?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open “%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要打开“%@”吗？"
+          }
+        }
+      }
+    },
     "OpenDocument Text…": {
       "extractionState": "manual",
       "localizations": {
@@ -7246,6 +7280,23 @@
         }
       }
     },
+    "The operation could not be completed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The operation could not be completed."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成操作。"
+          }
+        }
+      }
+    },
     "The region does not match the bucket. Check the region setting.": {
       "extractionState": "manual",
       "localizations": {
@@ -7599,6 +7650,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "这是文件夹，不是文件。"
+          }
+        }
+      }
+    },
+    "This link points to an app or script. Opening it will run it on your Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This link points to an app or script. Opening it will run it on your Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个链接指向一个应用或脚本，打开它就会在这台 Mac 上运行。"
           }
         }
       }

@@ -2,6 +2,7 @@ import AppKit
 import CoreText
 import CryptoKit
 import Foundation
+import LiteMDDomain
 import LiteMDInfrastructure
 import Observation
 
@@ -151,7 +152,7 @@ final class CustomFontStore {
         guard let familyName = Self.familyName(in: data) else { throw ImportError.notAFont }
 
         // 同一份文件重复导入时不再写一遍。
-        let digest = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: data).prefix(4).hexString
         let fileName = "\(Self.sanitize(familyName))-\(digest).\(fileExtension)"
         if let existing = fonts.first(where: { $0.fileName == fileName }) { return existing }
 

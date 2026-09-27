@@ -3,6 +3,7 @@ import LiteMDConversion
 import LiteMDDomain
 import LiteMDMarkdown
 import PDFKit
+import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
@@ -59,11 +60,32 @@ enum ExportFormat: String, CaseIterable, Identifiable {
     }
 }
 
+/// 导出格式子菜单：文件菜单、侧栏与标签页的右键菜单共用。
+struct ExportFormatMenu: View {
+    let title: LocalizedStringKey
+    let action: (ExportFormat) -> Void
+
+    init(_ title: LocalizedStringKey, action: @escaping (ExportFormat) -> Void) {
+        self.title = title
+        self.action = action
+    }
+
+    var body: some View {
+        Menu(title) {
+            ForEach(ExportFormat.allCases) { format in
+                Button(format.displayName) { action(format) }
+            }
+        }
+    }
+}
+
 /// 导入 / 导出。转换本身只读取文档内容，不修改用户的 Markdown 文件。
 @MainActor
 final class DocumentConversion {
     private let parser = MarkdownParser()
-    private var printWindow: NSWindow?
+    /// 离屏 WebView 所在的窗口，按 WebView 分开保存：批量导出 PDF 时再按 ⌥⌘P 打印，
+    /// 两个任务各用各的窗口，不能互相覆盖、提前拆掉对方的。
+    private var offscreenWindows: [ObjectIdentifier: NSWindow] = [:]
 
     // MARK: Export
 
@@ -138,31 +160,38 @@ final class DocumentConversion {
         guard html.contains("<img") else { return html }
         var result = ""
         var remainder = Substring(html)
-
-        while let range = remainder.range(of: "src=\"") {
-            result += remainder[..<range.upperBound]
-            remainder = remainder[range.upperBound...]
-            guard let end = remainder.firstIndex(of: "\"") else { break }
-            let source = String(remainder[..<end])
-            remainder = remainder[end...]
-
-            guard !source.hasPrefix("data:"), !source.hasPrefix("http://"), !source.hasPrefix("https://") else {
-                result += source
-                continue
-            }
-            let decoded = source.removingPercentEncoding ?? source
-            let fileURL = decoded.hasPrefix("/")
-                ? URL(fileURLWithPath: decoded)
-                : documentDirectory.appendingPathComponent(decoded)
-            if let data = try? Data(contentsOf: fileURL), data.count <= 8 * 1024 * 1024,
-               let type = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType {
-                result += "data:\(type);base64,\(data.base64EncodedString())"
-            } else {
-                result += source
-            }
+        // 只改真正的 <img> 标签：代码块里的文字已经转义成 &lt;img，不会被误改成 data URI。
+        while let tag = remainder.range(of: "<img") {
+            result += remainder[..<tag.lowerBound]
+            remainder = remainder[tag.lowerBound...]
+            guard let tagEnd = remainder.firstIndex(of: ">") else { break }
+            result += embedSource(in: remainder[...tagEnd], documentDirectory: documentDirectory)
+            remainder = remainder[remainder.index(after: tagEnd)...]
         }
         result += remainder
         return result
+    }
+
+    private func embedSource(in tag: Substring, documentDirectory: URL) -> String {
+        guard let start = tag.range(of: "src=\""),
+              let end = tag[start.upperBound...].firstIndex(of: "\"") else { return String(tag) }
+        let source = String(tag[start.upperBound..<end])
+        guard !source.hasPrefix("data:"), !source.hasPrefix("http://"), !source.hasPrefix("https://") else { return String(tag) }
+
+        let decoded = source.removingPercentEncoding ?? source
+        let fileURL: URL
+        if let url = URL(string: decoded), url.isFileURL {
+            fileURL = url
+        } else if decoded.hasPrefix("/") {
+            fileURL = URL(fileURLWithPath: decoded)
+        } else {
+            fileURL = documentDirectory.appendingPathComponent(decoded)
+        }
+        // 先看大小再读：超过 8 MB 的图片保持原样，避免导出文件过大，也不必整个读进内存。
+        guard let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize, size <= 8 * 1024 * 1024,
+              let type = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType,
+              let data = try? Data(contentsOf: fileURL) else { return String(tag) }
+        return String(tag[..<start.upperBound]) + "data:\(type);base64,\(data.base64EncodedString())" + String(tag[end...])
     }
 
     /// A4：网页按 96dpi 渲染（794×1123 像素），写进 PDF 时再缩到 72dpi 的点（595×842）。
@@ -171,7 +200,7 @@ final class DocumentConversion {
 
     private func exportPDF(markdown: String, title: String, documentDirectory: URL, to destination: URL) async throws {
         let webView = try await loadPreviewWebView(markdown: markdown, documentDirectory: documentDirectory)
-        defer { teardownPrintWindow() }
+        defer { teardown(webView) }
         try write(try await paginatedPDF(from: webView), to: destination)
     }
 
@@ -179,8 +208,8 @@ final class DocumentConversion {
     /// 直接打印离屏 WebView 会得到写不完的空白页。
     func print(markdown: String, title: String, documentDirectory: URL) async throws {
         let webView = try await loadPreviewWebView(markdown: markdown, documentDirectory: documentDirectory)
+        defer { teardown(webView) }
         let data = try await paginatedPDF(from: webView)
-        teardownPrintWindow()
         guard let document = PDFDocument(data: data) else {
             throw ConversionError.corrupted("Could not render the document")
         }
@@ -296,23 +325,27 @@ final class DocumentConversion {
         let window = NSWindow(contentRect: webView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.setIsVisible(false)
-        printWindow = window
+        offscreenWindows[ObjectIdentifier(webView)] = window
 
         let result = parser.parseSynchronously(markdown, documentID: DocumentID(), revision: 0)
         webView.loadHTMLString(
             PreviewTemplate.page(body: result.html, theme: ThemeRuntime.shared.theme, fonts: ThemeRuntime.shared.fonts),
             baseURL: AssetSchemeHandler.baseURL(for: documentDirectory)
         )
-        try await delegate.waitForLoad()
+        do {
+            try await delegate.waitForLoad()
+        } catch {
+            teardown(webView)
+            throw error
+        }
         await PreviewController.renderMermaid(in: webView)
         // 给排版、字体与图片解码留出时间。
         try? await Task.sleep(for: .milliseconds(300))
         return webView
     }
 
-    private func teardownPrintWindow() {
-        printWindow?.contentView = nil
-        printWindow = nil
+    private func teardown(_ webView: WKWebView) {
+        offscreenWindows.removeValue(forKey: ObjectIdentifier(webView))?.contentView = nil
     }
 
     // MARK: Import

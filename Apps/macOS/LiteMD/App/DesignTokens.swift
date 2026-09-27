@@ -51,7 +51,6 @@ enum IconSize {
 }
 
 enum Layout {
-    static let tabBarHeight: CGFloat = Space.s8 + Space.s1
     /// 状态栏与侧栏底部栏同高，底边对齐。
     static let statusBarHeight: CGFloat = Space.s8
     static let sidebarMinimumWidth: CGFloat = 200
@@ -192,9 +191,7 @@ extension Color {
     static var textTertiary: Color { Color(nsColor: Palette.textTertiary) }
     static var surfaceMuted: Color { Color(nsColor: Palette.surfaceMuted) }
     static var borderSubtle: Color { Color(nsColor: Palette.border) }
-    static var selection: Color { Color(nsColor: Palette.selection) }
     static var editorBackground: Color { Color(nsColor: Palette.editorBackground) }
-    static var heading: Color { Color(nsColor: Palette.heading) }
     static var sidebarBackground: Color { Color(nsColor: Palette.sidebarBackground) }
     static let statusSuccess = Color(nsColor: Palette.success)
     static let statusWarning = Color(nsColor: Palette.warning)

@@ -6,6 +6,11 @@ struct LiteMDCommands: Commands {
     let model: AppModel
 
     var body: some Commands {
+        // 与命令面板的可用条件一致：没有文档或文件夹时，对应的菜单项置灰。
+        let hasDocument = model.activeDocument != nil
+        let hasFile = model.activeDocument?.fileReference != nil
+        let hasWorkspace = model.workspace.root != nil
+
         CommandGroup(after: .appInfo) {
             Button("Check for Updates…") {
                 Task { await model.updates.check(userInitiated: true) }
@@ -22,29 +27,27 @@ struct LiteMDCommands: Commands {
             Button("Open iCloud Drive Folder…") { model.showOpeniCloudFolderPanel() }
             RecentItemsMenu(model: model)
             Divider()
-            Button("Quick Open…") { model.isQuickOpenPresented = true }
-                .keyboardShortcut("p")
-            Button("Command Palette…") { model.isCommandPalettePresented = true }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
+            Group {
+                Button("Quick Open…") { model.isQuickOpenPresented = true }
+                    .keyboardShortcut("p")
+                    .disabled(!hasWorkspace)
+                Button("Command Palette…") { model.isCommandPalettePresented = true }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+            }
+            .disabled(model.isPresentingSheet)
             Divider()
             Button("Import…") { model.importFromOtherFormats() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
             Button("Transcribe Recording…") { model.transcribeAudioFromPanel() }
-            Menu("Export") {
-                ForEach(ExportFormat.allCases) { format in
-                    Button(format.displayName) { model.export(format) }
-                }
+            ExportFormatMenu("Export") { model.export($0) }
+                .disabled(!hasDocument)
+            ExportFormatMenu("Export Folder") { format in
+                if let root = model.workspace.rootURL { model.exportFolder(root, as: format) }
             }
-            Menu("Export Folder") {
-                ForEach(ExportFormat.allCases) { format in
-                    Button(format.displayName) {
-                        if let root = model.workspace.rootURL { model.exportFolder(root, as: format) }
-                    }
-                }
-            }
-            .disabled(model.workspace.rootURL == nil)
+            .disabled(!hasWorkspace || model.isPresentingSheet)
             Button("Print…") { model.printActiveDocument() }
                 .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(!hasDocument)
         }
 
         CommandGroup(replacing: .saveItem) {
@@ -52,39 +55,52 @@ struct LiteMDCommands: Commands {
                 .keyboardShortcut("w")
             Button("Reopen Closed Tab") { model.reopenClosedDocument() }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
+                .disabled(!model.documents.canReopenClosedDocument)
             Divider()
-            Button("Save") { model.saveActiveDocument() }
-                .keyboardShortcut("s")
-            Button("Save As…") { model.saveActiveDocumentAs() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
-            Divider()
-            Button("Rename…") { model.renameActiveDocument() }
-            Button("Version History…") { model.showVersionHistory() }
-                .keyboardShortcut("y", modifiers: [.command, .option])
-            Button("Reveal in Finder") {
-                if let url = model.activeDocument?.fileReference?.url {
-                    SystemIntegration.revealInFinder(url)
-                }
+            Group {
+                Button("Save") { model.saveActiveDocument() }
+                    .keyboardShortcut("s")
+                Button("Save As…") { model.saveActiveDocumentAs() }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
             }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-            Button("Move to Trash") { model.trashActiveDocument() }
+            .disabled(!hasDocument)
+            Divider()
+            Group {
+                Button("Rename…") { model.renameActiveDocument() }
+                Button("Version History…") { model.showVersionHistory() }
+                    .keyboardShortcut("y", modifiers: [.command, .option])
+                    .disabled(model.isPresentingSheet)
+                Button("Reveal in Finder") {
+                    if let url = model.activeDocument?.fileReference?.url {
+                        SystemIntegration.revealInFinder(url)
+                    }
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+                Button("Move to Trash") { model.trashActiveDocument() }
+            }
+            .disabled(!hasFile)
             Divider()
             Button("Back Up Folder Now") { model.backup.backUpNow() }
                 .keyboardShortcut("b", modifiers: [.command, .control])
+                .disabled(!hasWorkspace)
             Button("Restore from Backup…") { model.isRestorePresented = true }
+                .disabled(model.isPresentingSheet)
             Button("Close Folder") { model.closeWorkspace() }
+                .disabled(!hasWorkspace)
         }
 
         CommandGroup(after: .pasteboard) {
             Divider()
             Button("Insert Image…") { model.insertImageFromPanel() }
                 .keyboardShortcut("i", modifiers: [.command, .control])
+                .disabled(!hasDocument)
         }
 
         TextEditingCommands()
 
         CommandMenu("Format") {
             FormatMenuItems(model: model)
+                .disabled(!hasDocument)
         }
 
         CommandGroup(before: .sidebar) {

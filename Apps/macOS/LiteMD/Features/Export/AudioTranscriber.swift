@@ -116,13 +116,7 @@ extension AppModel {
     }
 
     func transcribeAudioFromPanel() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = AudioTranscriber.audioExtensions.compactMap { UTType(filenameExtension: $0) }
-        panel.message = String(localized: "Choose a recording to transcribe. Recognition runs on this Mac.")
-        panel.prompt = String(localized: "Transcribe")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let url = SystemIntegration.chooseRecording() else { return }
         Task { await importFile(url) }
     }
 }

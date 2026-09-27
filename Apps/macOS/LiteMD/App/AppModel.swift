@@ -78,10 +78,16 @@ final class AppModel {
     @ObservationIgnored private var editors: [DocumentID: EditorController] = [:]
     @ObservationIgnored private var sessionSaveTask: Task<Void, Never>?
     @ObservationIgnored private var editorSettingsTask: Task<Void, Never>?
-    @ObservationIgnored private var didStart = false
+    /// 启动流程（读会话、恢复上次打开的文件夹与文档）。只跑一次，其他调用方等它完成。
+    @ObservationIgnored private var startTask: Task<Void, Never>?
 
     var sidebarTab: SidebarTab = .files
-    var editorMode: EditorMode = .split
+    var editorMode: EditorMode = .split {
+        // 同步滚动只在分栏时跟随编辑区；在其他模式下滚动过，切回分栏时补一次，预览才不会停在旧位置。
+        didSet {
+            if editorMode == .split, oldValue != .split { syncPreviewScroll() }
+        }
+    }
     var columnVisibility: NavigationSplitViewVisibility = .all
     var isQuickOpenPresented = false
     var isCommandPalettePresented = false
@@ -96,6 +102,14 @@ final class AppModel {
     var renameRequest: RenameRequest?
     var compareRequest: CompareRequest?
     var pendingRecovery: [RecoveryEntry] = []
+
+    /// 主窗口上已经有面板。同一视图同时只能弹出一个面板，第二个会被丢弃，
+    /// 它的状态卡在 true，之后对应的快捷键就再也没反应。
+    var isPresentingSheet: Bool {
+        isQuickOpenPresented || isCommandPalettePresented || isRestorePresented
+            || versionHistoryDocument != nil || compareRequest != nil || folderExportRequest != nil
+    }
+
     /// 详情栏宽度，用于在标题栏中排布标签页。
     var detailColumnWidth: CGFloat = Layout.defaultWindowWidth - Layout.sidebarIdealWidth
 
@@ -178,6 +192,12 @@ final class AppModel {
         activeDocument?.displayName ?? workspace.root?.name ?? "LiteMD"
     }
 
+    private func syncPreviewScroll() {
+        guard settings.previewSyncScroll, let document = activeDocument,
+              let line = editors[document.id]?.topVisibleLine() else { return }
+        preview.scroll(toLine: line)
+    }
+
     func editor(for document: Document) -> EditorController {
         if let existing = editors[document.id] { return existing }
         let controller = EditorController(document: document, model: self)
@@ -203,8 +223,13 @@ final class AppModel {
     // MARK: Lifecycle
 
     func start() async {
-        guard !didStart else { return }
-        didStart = true
+        if let startTask { return await startTask.value }
+        let task = Task { await performStart() }
+        startTask = task
+        await task.value
+    }
+
+    private func performStart() async {
         await session.load()
         await folderAppearance.load()
         #if DEBUG
@@ -426,6 +451,9 @@ final class AppModel {
     }
 
     func open(_ urls: [URL]) async {
+        // 冷启动时从访达打开文件会和会话恢复同时进行；先等会话恢复完，
+        // 否则恢复出来的上次文件夹和文档会盖掉用户刚双击的文件。
+        await start()
         for url in urls {
             if await fileSystem.isDirectory(at: url) {
                 await openWorkspace(url)
@@ -490,6 +518,9 @@ final class AppModel {
         Task {
             do {
                 try await fileSystem.moveItem(from: root, to: destination)
+                // 和文件树里的移动一样善后：已打开的标签改指向新位置，文件夹的图标与颜色跟着走。
+                documents.itemMoved(from: root, to: destination)
+                folderAppearance.itemMoved(from: root, to: destination)
                 await openWorkspace(destination)
             } catch {
                 SystemIntegration.present(error)
@@ -586,9 +617,13 @@ final class AppModel {
 
     // MARK: Close
 
+    /// ⌘W。菜单里的“关闭标签页”顶替了系统的“关闭”，所以设置窗口等其他窗口在前台时，
+    /// 要关的是那个窗口，而不是主窗口里的当前标签。
     func closeActiveDocument() {
-        guard let document = activeDocument else {
-            NSApp.keyWindow?.performClose(nil)
+        let keyWindow = NSApp.keyWindow
+        let mainWindowIsKey = keyWindow?.identifier?.rawValue.hasPrefix(MainWindowView.windowID) == true
+        guard mainWindowIsKey, let document = activeDocument else {
+            keyWindow?.performClose(nil)
             return
         }
         Task { await close(document) }
@@ -700,7 +735,12 @@ final class AppModel {
     }
 
     func insertImageFromPanel() {
-        guard let editor = activeEditor else { return }
+        guard let editor = activeEditor, let document = activeDocument else { return }
+        // 图片要存到文档旁边：未保存的文档先提示，别等用户选完图片才说。
+        guard document.fileReference != nil else {
+            SystemIntegration.present(LiteMDError(kind: .asset, reason: .requiresSavedDocument, fileName: document.displayName))
+            return
+        }
         let urls = SystemIntegration.chooseImages()
         editor.importImages(files: urls)
     }
@@ -772,7 +812,7 @@ final class AppModel {
                 details: error.details
             )
         } catch {
-            SystemIntegration.present(error)
+            SystemIntegration.present(error, title: String(localized: "Could not convert \(source.lastPathComponent)."))
         }
     }
 
@@ -787,15 +827,10 @@ final class AppModel {
     func export(_ url: URL, as format: ExportFormat) {
         let directory = url.deletingLastPathComponent()
         let name = url.deletingPathExtension().lastPathComponent
-        if let document = documents.documents.first(where: { $0.fileReference?.url == url }) {
-            export(document.text, name: name, directory: directory, baseDirectory: directory, format: format)
-            return
-        }
         Task {
-            do throws(LiteMDError) {
-                try await fileSystem.ensureDownloaded(at: url)
-                let loaded = try await fileSystem.readText(at: url)
-                export(loaded.text, name: name, directory: directory, baseDirectory: directory, format: format)
+            do {
+                let markdown = try await markdownForExport(of: url)
+                export(markdown, name: name, directory: directory, baseDirectory: directory, format: format)
             } catch {
                 SystemIntegration.present(error)
             }
@@ -828,7 +863,7 @@ final class AppModel {
             do {
                 try await conversion.print(markdown: markdown, title: name, documentDirectory: baseDirectory)
             } catch {
-                SystemIntegration.present(error)
+                SystemIntegration.present(error, title: String(localized: "Could not print “\(name)”."))
             }
         }
     }
@@ -859,6 +894,7 @@ final class AppModel {
         Task {
             do {
                 let disk = try await documents.diskText(for: document)
+                guard !isPresentingSheet else { return }
                 compareRequest = CompareRequest(document: document, diskText: disk, localText: document.text)
             } catch {
                 SystemIntegration.present(error)
@@ -920,15 +956,7 @@ final class AppModel {
             if MarkdownFileType.isDocument(fileURL) {
                 await openDocument(fileURL)
             } else {
-                SystemIntegration.openExternally(fileURL)
-            }
-        }
-    }
-
-    func closeAllDocuments() {
-        Task {
-            for document in documents.documents {
-                guard await close(document) else { break }
+                SystemIntegration.openLocalFile(fileURL)
             }
         }
     }
@@ -954,7 +982,7 @@ final class AppModel {
             } else {
                 Task {
                     if await fileSystem.itemExists(at: fileURL) {
-                        SystemIntegration.openExternally(fileURL)
+                        SystemIntegration.openLocalFile(fileURL)
                     }
                 }
             }

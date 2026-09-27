@@ -25,10 +25,11 @@ final class SearchModel {
         results.reduce(0) { $0 + $1.matches.count }
     }
 
+    /// 换了文件夹：旧结果作废，保留搜索词并在新文件夹里重新搜，
+    /// 否则侧栏会显示着搜索词却是“无结果”，再搜同一个词也不会触发。
     func reset() {
-        task?.cancel()
         results = []
-        isSearching = false
+        schedule()
     }
 
     func refresh() {
