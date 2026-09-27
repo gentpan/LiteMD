@@ -1,5 +1,6 @@
 import AppKit
 import LiteMDApplication
+import LiteMDConversion
 import LiteMDDomain
 import LiteMDEditor
 import LiteMDMarkdown
@@ -45,6 +46,7 @@ final class MarkdownTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         if controller?.handlePaste(from: .general) == true { return }
+        if controller?.pasteRichTextAsMarkdown(from: .general) == true { return }
         super.paste(sender)
     }
 
@@ -1028,6 +1030,37 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         guard !types.contains(.string), let image = Self.imageData(from: pasteboard) else { return false }
         importImage(data: image.data, fileExtension: image.fileExtension)
         return true
+    }
+
+    /// 从网页、Word、Google 文档等处复制的富文本粘贴成 Markdown：标题、列表、链接、粗体、表格都保留下来。
+    /// “粘贴为纯文本”不经过这里；光标在代码块里、内容来自代码编辑器、原文没有格式时也照原样粘贴。
+    func pasteRichTextAsMarkdown(from pasteboard: NSPasteboard) -> Bool {
+        guard let html = pasteboard.string(forType: .html), !isCaretInCodeBlock,
+              let markdown = PastedHTML.markdown(fromHTML: html, plainText: pasteboard.string(forType: .string)) else { return false }
+        let range = textView.selectedRange()
+        let caret = range.location + (markdown as NSString).length
+        apply(EditResult(edit: TextEdit(range: range, replacement: markdown), selection: Selection(cursor: caret)), actionName: String(localized: "Paste"))
+        return true
+    }
+
+    /// 光标是否在围栏代码块里。直接扫描光标之前的各行，不依赖异步算出的高亮结果：
+    /// 刚打开文档、高亮还没算完时也要判断正确。
+    private var isCaretInCodeBlock: Bool {
+        let string = textView.string as NSString
+        let caret = min(textView.selectedRange().location, string.length)
+        let units = Array(string.substring(to: caret).utf16)
+        var open: MarkdownFence?
+        var lineStart = 0
+        for (index, unit) in units.enumerated() where unit == 0x0A {
+            let line = MarkdownFence.parse(units, lineStart, index)
+            if let fence = open {
+                if let line, fence.isClosed(by: line) { open = nil }
+            } else if let line {
+                open = line
+            }
+            lineStart = index + 1
+        }
+        return open != nil
     }
 
     func handleDrop(_ info: any NSDraggingInfo) -> Bool {

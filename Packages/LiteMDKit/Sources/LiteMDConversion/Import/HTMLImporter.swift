@@ -2,7 +2,7 @@ import Foundation
 
 /// HTML DOM → Markdown。输入为已解析的元素树（XHTML 直接解析；普通 HTML 由平台层先整理为 XML）。
 public struct HTMLMarkdownConverter {
-    /// 解析 `<img src>`，返回 Markdown 中使用的路径；返回 nil 时保留原地址。
+    /// 解析 `<img src>`，返回 Markdown 中使用的路径；返回 nil 时保留原地址，返回空字符串时丢弃这张图。
     var resolveImage: (String) -> String?
 
     public init(resolveImage: @escaping (String) -> String? = { _ in nil }) {
@@ -171,6 +171,7 @@ public struct HTMLMarkdownConverter {
         case "img":
             guard let source = element["src"], !source.isEmpty else { return [] }
             let path = resolveImage(source) ?? source
+            guard !path.isEmpty else { return [] }
             let alt = MarkdownComposer.escapeInline(element["alt"] ?? "")
             return [.markdown("![\(alt)](\(MarkdownComposer.destination(path)))")]
         case "code", "kbd", "samp", "tt":
@@ -182,6 +183,7 @@ public struct HTMLMarkdownConverter {
         default:
             if Self.skipped.contains(element.localName) { return [] }
         }
+        Self.applyInlineStyle(element["style"], to: &current)
 
         var pieces: [InlinePiece] = []
         for child in element.children {
@@ -195,6 +197,30 @@ public struct HTMLMarkdownConverter {
             }
         }
         return pieces
+    }
+
+    /// 行内 CSS 里的粗体、斜体、删除线。Google 文档等编辑器只用样式表达格式，
+    /// 还会在最外层套一个 `font-weight:normal` 的 `<b>`，所以样式里写明“不加粗”时要取消继承来的粗体。
+    static func applyInlineStyle(_ style: String?, to piece: inout InlinePiece) {
+        guard let style, !style.isEmpty else { return }
+        for declaration in style.split(separator: ";") {
+            let parts = declaration.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            guard parts.count == 2 else { continue }
+            switch parts[0] {
+            case "font-weight":
+                if ["bold", "bolder", "600", "700", "800", "900"].contains(parts[1]) {
+                    piece.bold = true
+                } else if ["normal", "lighter", "100", "200", "300", "400", "500"].contains(parts[1]) {
+                    piece.bold = false
+                }
+            case "font-style":
+                piece.italic = parts[1] == "italic" || parts[1] == "oblique"
+            case "text-decoration", "text-decoration-line":
+                if parts[1].contains("line-through") { piece.strikethrough = true }
+            default:
+                break
+            }
+        }
     }
 
     static func collapseWhitespace(_ text: String) -> String {

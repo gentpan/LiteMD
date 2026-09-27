@@ -402,3 +402,44 @@ struct WebAndTextConversionTests {
         #expect(latex.contains("\\title{T\\_1}"))
     }
 }
+
+@Suite("Paste as Markdown")
+struct PastedHTMLTests {
+    @Test func convertsFormattedWebContent() throws {
+        let html = """
+        <meta charset="utf-8"><h2>标题</h2><p>这是 <strong>加粗</strong>、<em>斜体</em> 和 <a href="https://example.com">链接</a>。</p>
+        <ul><li>第一项</li><li>第二项</li></ul>
+        """
+        let markdown = try #require(PastedHTML.markdown(fromHTML: html, plainText: "标题\n这是 加粗、斜体 和 链接。\n第一项\n第二项"))
+        #expect(markdown.contains("## 标题"))
+        #expect(markdown.contains("**加粗**"))
+        #expect(markdown.contains("*斜体*"))
+        #expect(markdown.contains("[链接](https://example.com)"))
+        #expect(markdown.contains("- 第一项\n- 第二项"))
+    }
+
+    @Test func unformattedTextPastesAsPlainText() {
+        let html = #"<span style="color: rgb(20, 20, 20); font-family: Georgia;">Price: 1. apples * 2</span>"#
+        #expect(PastedHTML.markdown(fromHTML: html, plainText: "Price: 1. apples * 2") == nil)
+    }
+
+    @Test func codeEditorContentPastesAsPlainText() {
+        // VS Code 复制出来的 HTML：最外层用 white-space: pre 保留缩进。
+        let html = #"<meta charset='utf-8'><div style="color: #d4d4d4;font-family: Menlo, monospace;white-space: pre;"><div><span style="color: #569cd6;">func</span> run() {</div><div>    print(1)</div><div>}</div></div>"#
+        #expect(PastedHTML.markdown(fromHTML: html, plainText: "func run() {\n    print(1)\n}") == nil)
+    }
+
+    @Test func followsInlineStylesFromGoogleDocs() throws {
+        // Google 文档在最外层套一个 font-weight:normal 的 <b>，真正的粗体写在 span 的样式里。
+        let html = #"<b style="font-weight:normal;" id="docs-internal-guid-1"><p><span style="font-weight:400;">普通文字，</span><span style="font-weight:700;">重点</span><span style="font-style:italic;">斜体</span></p></b>"#
+        let markdown = try #require(PastedHTML.markdown(fromHTML: html, plainText: "普通文字，重点斜体"))
+        #expect(markdown == "普通文字，**重点***斜体*")
+    }
+
+    @Test func dropsInlineDataImagesButKeepsWebImages() throws {
+        let html = #"<p>图：<img src="data:image/png;base64,AAAA" alt="内嵌"><img src="https://example.com/a.png" alt="网络"></p>"#
+        let markdown = try #require(PastedHTML.markdown(fromHTML: html, plainText: "图："))
+        #expect(!markdown.contains("data:"))
+        #expect(markdown.contains("![网络](https://example.com/a.png)"))
+    }
+}

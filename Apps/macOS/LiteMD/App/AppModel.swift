@@ -239,6 +239,7 @@ final class AppModel {
         await restoreSession()
         #if DEBUG
         await FolderExportDebugRun.runIfRequested(model: self)
+        await PasteDebugRun.runIfRequested(model: self)
         #endif
         updates.checkOnLaunchIfNeeded()
         let entries = await documents.pendingRecoveryEntries()
