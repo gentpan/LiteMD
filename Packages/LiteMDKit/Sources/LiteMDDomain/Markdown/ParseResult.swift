@@ -22,40 +22,6 @@ public struct HeadingItem: Identifiable, Hashable, Sendable {
     }
 }
 
-public struct LinkItem: Hashable, Sendable {
-    public var destination: String
-    public var line: Int
-
-    public init(destination: String, line: Int) {
-        self.destination = destination
-        self.line = line
-    }
-}
-
-public struct ImageItem: Hashable, Sendable {
-    public var source: String
-    public var alt: String
-    public var line: Int
-
-    public init(source: String, alt: String, line: Int) {
-        self.source = source
-        self.alt = alt
-        self.line = line
-    }
-}
-
-public struct CodeBlockItem: Hashable, Sendable {
-    public var language: String?
-    public var startLine: Int
-    public var endLine: Int
-
-    public init(language: String?, startLine: Int, endLine: Int) {
-        self.language = language
-        self.startLine = startLine
-        self.endLine = endLine
-    }
-}
-
 public struct DocumentStatistics: Equatable, Sendable {
     public var words: Int
     public var characters: Int
@@ -75,37 +41,22 @@ public struct ParseResult: Sendable {
     public var documentID: DocumentID
     public var revision: Int
     public var headings: [HeadingItem]
-    public var links: [LinkItem]
-    public var images: [ImageItem]
-    public var codeBlocks: [CodeBlockItem]
-    public var wikiLinks: [WikiLink]
     public var statistics: DocumentStatistics
     /// 已净化的 HTML 片段，块级元素带 `data-line` 以支持滚动同步。
     public var html: String
-    public var diagnostics: [String]
 
     public init(
         documentID: DocumentID,
         revision: Int,
         headings: [HeadingItem] = [],
-        links: [LinkItem] = [],
-        images: [ImageItem] = [],
-        codeBlocks: [CodeBlockItem] = [],
-        wikiLinks: [WikiLink] = [],
         statistics: DocumentStatistics = DocumentStatistics(),
-        html: String = "",
-        diagnostics: [String] = []
+        html: String = ""
     ) {
         self.documentID = documentID
         self.revision = revision
         self.headings = headings
-        self.links = links
-        self.images = images
-        self.codeBlocks = codeBlocks
-        self.wikiLinks = wikiLinks
         self.statistics = statistics
         self.html = html
-        self.diagnostics = diagnostics
     }
 }
 

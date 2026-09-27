@@ -25,8 +25,8 @@ struct ZipTests {
         let archive = try ZipArchive(data: writer.finish())
 
         #expect(archive.orderedPaths == ["mimetype", "folder/large.txt", "binary.png"])
-        #expect(try archive.string(for: "mimetype") == "application/epub+zip")
-        #expect(try archive.string(for: "folder/large.txt") == large)
+        #expect(try archive.data(for: "mimetype") == Data("application/epub+zip".utf8))
+        #expect(try archive.data(for: "folder/large.txt") == Data(large.utf8))
         #expect(try archive.data(for: "/binary.png") == tinyPNG)
         #expect(ZipArchive.resolve("../media/a.png", relativeTo: "word/document.xml") == "media/a.png")
         #expect(ZipArchive.resolve("media/a.png", relativeTo: "word/document.xml") == "word/media/a.png")
@@ -113,7 +113,7 @@ struct DocxTests {
         }
         #expect(archive.contains("word/media/image1.png"))
 
-        let document = try archive.string(for: "word/document.xml")
+        let document = String(decoding: try archive.data(for: "word/document.xml"), as: UTF8.self)
         #expect(document.contains("<w:pStyle w:val=\"Heading1\"/>"))
         #expect(document.contains("<w:numPr><w:ilvl w:val=\"1\"/>"))
         #expect(document.contains("<w:rStyle w:val=\"VerbatimChar\"/>"))

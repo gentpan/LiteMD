@@ -33,10 +33,6 @@ public struct MarkdownParser: MarkdownParsing {
             documentID: documentID,
             revision: revision,
             headings: renderer.headings,
-            links: renderer.links,
-            images: renderer.images,
-            codeBlocks: renderer.codeBlocks,
-            wikiLinks: prepared.wikiLinks,
             statistics: DocumentStatisticsCounter.compute(text),
             html: html
         )
@@ -47,15 +43,13 @@ public struct MarkdownParser: MarkdownParsing {
         var frontMatter: String?
         var placeholders: ExtensionPlaceholders
         var document: Document
-        var wikiLinks: [WikiLink]
     }
 
     static func prepare(_ text: String) -> Prepared {
         let frontMatter = FrontMatter.split(text)
-        let scan = MarkdownExtensionScanner.scan(frontMatter.body)
-        let placeholders = ExtensionPlaceholders(text: frontMatter.body, scan: scan)
+        let placeholders = ExtensionPlaceholders(text: frontMatter.body, scan: MarkdownExtensionScanner.scan(frontMatter.body))
         let document = Document(parsing: placeholders.text, options: [.disableSmartOpts])
-        return Prepared(frontMatter: frontMatter.yaml, placeholders: placeholders, document: document, wikiLinks: scan.wikiLinks)
+        return Prepared(frontMatter: frontMatter.yaml, placeholders: placeholders, document: document)
     }
 
     static func lineStartOffsets(_ text: String) -> [Int] {

@@ -46,8 +46,7 @@ struct MarkdownParserTests {
     @Test func escapesTextAndCode() {
         let result = parse("a < b & c\n\n```html\n<script>alert(1)</script>\n```\n")
         #expect(result.html.contains("a &lt; b &amp; c"))
-        #expect(result.html.contains("<code class=\"language-html\">&lt;script&gt;"))
-        #expect(result.codeBlocks == [CodeBlockItem(language: "html", startLine: 3, endLine: 5)])
+        #expect(result.html.contains("<pre data-line=\"3\"><code class=\"language-html\">&lt;script&gt;"))
     }
 
     @Test func sanitizesDangerousHTMLAndURLs() {
@@ -70,12 +69,12 @@ struct MarkdownParserTests {
         #expect(result.html.contains("<kbd>⌘</kbd>"))
     }
 
-    @Test func rewritesFileImageURLsAndCollectsImages() {
+    @Test func rewritesFileImageURLs() {
         let result = parse("![shot](assets/a.png) ![abs](file:///Users/me/b%20c.png) ![bad](javascript:x)")
         #expect(result.html.contains("src=\"assets/a.png\""))
         #expect(result.html.contains("src=\"litemd-asset://file/Users/me/b%20c.png\""))
         #expect(!result.html.contains("javascript"))
-        #expect(result.images.map(\.source) == ["assets/a.png", "file:///Users/me/b%20c.png", "javascript:x"])
+        #expect(result.html.contains("bad"))
     }
 
     @Test func doesNotConvertQuotesToSmartQuotes() {
@@ -234,7 +233,6 @@ struct MarkdownExtensionRenderingTests {
         #expect(result.html.contains("href=\"litemd-wiki:Notes/%E6%97%A5%E8%AE%B0#%E4%BB%8A%E5%A4%A9\""))
         #expect(result.html.contains("<img class=\"wikilink-embed\" src=\"pic.png\""))
         #expect(result.headings.first?.title == "About the *plan*")
-        #expect(result.wikiLinks.map(\.target) == ["Project_Plan", "Notes/日记", "pic.png"])
         #expect(!result.html.contains("\u{E000}"))
     }
 

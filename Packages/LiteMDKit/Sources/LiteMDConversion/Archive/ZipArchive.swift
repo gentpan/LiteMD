@@ -79,10 +79,6 @@ public struct ZipArchive: Sendable {
         }
     }
 
-    public func string(for path: String) throws(ConversionError) -> String {
-        String(decoding: try data(for: path), as: UTF8.self)
-    }
-
     /// 去掉开头的 `/` 与 `./`，并解析 `..`。
     static func normalize(_ path: String) -> String {
         var components: [Substring] = []

@@ -2,7 +2,7 @@ import Foundation
 import LiteMDDomain
 import Markdown
 
-/// 把 AST 渲染为 Preview HTML，并在同一次遍历中收集 Outline、链接、图片等元数据。
+/// 把 AST 渲染为 Preview HTML，并在同一次遍历中收集 Outline。
 ///
 /// 块级元素带 `data-line`（源文件行号），用于 Split Preview 的块级滚动同步（spec §129）。
 struct HTMLRenderer: MarkupVisitor {
@@ -22,9 +22,6 @@ struct HTMLRenderer: MarkupVisitor {
 
     private(set) var output = ""
     private(set) var headings: [HeadingItem] = []
-    private(set) var links: [LinkItem] = []
-    private(set) var images: [ImageItem] = []
-    private(set) var codeBlocks: [CodeBlockItem] = []
     private var slugger = HeadingSlugger()
 
     init(placeholders: ExtensionPlaceholders, lineStartOffsets: [Int], fileURLPrefix: String?, includesSourceLines: Bool = true) {
@@ -82,9 +79,6 @@ struct HTMLRenderer: MarkupVisitor {
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
         let language = codeBlock.language.map(placeholders.source)?.split(separator: " ").first.map(String.init)
         let code = placeholders.source(codeBlock.code)
-        let startLine = codeBlock.range?.lowerBound.line ?? 1
-        let endLine = codeBlock.range?.upperBound.line ?? startLine
-        codeBlocks.append(CodeBlockItem(language: language, startLine: startLine, endLine: endLine))
 
         // Mermaid 图表与 ```math 公式块由 Preview 脚本渲染；导出为 XHTML 时保留源码。
         if !xhtml, let language = language?.lowercased() {
@@ -267,8 +261,6 @@ struct HTMLRenderer: MarkupVisitor {
 
     mutating func visitLink(_ link: Link) {
         let destination = placeholders.source(link.destination ?? "")
-        let line = link.range?.lowerBound.line ?? 0
-        links.append(LinkItem(destination: destination, line: line))
 
         guard let href = URLSanitizer.sanitizeLink(destination) else {
             defaultVisit(link)
@@ -286,8 +278,6 @@ struct HTMLRenderer: MarkupVisitor {
     mutating func visitImage(_ image: Image) {
         let source = placeholders.source(image.source ?? "")
         let alt = placeholders.plainText(image.plainText)
-        let line = image.range?.lowerBound.line ?? 0
-        images.append(ImageItem(source: source, alt: alt, line: line))
 
         guard let src = imageSourceAttribute(source) else {
             output += HTMLEscaping.text(alt)
