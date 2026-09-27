@@ -1,0 +1,4 @@
+{
+  "zh-Hans": "· 新功能：在文件夹中查找替换。侧栏搜索可以展开替换框，一次替换整个文件夹；已打开的文档可以撤销，其他文件替换前的版本会保存在历史版本里（⌥⇧⌘F）\n· 新功能：从网页、Word、Google 文档复制的内容粘贴后自动转成 Markdown，标题、粗体、链接、列表、表格都保留；代码块里和“粘贴为纯文本”仍按原文粘贴\n· 性能：源码与实时预览模式下不再为隐藏的预览生成 HTML，大文档每次改动的解析时间缩短约三分之一\n· 导入 HTML 时识别行内样式里的粗体、斜体、删除线",
+  "en": "· New: Replace in Folder. Expand the replace field in the sidebar search to replace across the whole folder; changes to open documents can be undone, and other files keep their previous version in Version History (⌥⇧⌘F).\n· New: pasting from web pages, Word or Google Docs converts to Markdown, keeping headings, bold, links, lists and tables. Pasting inside code blocks and Paste as Plain Text keep the original text.\n· Performance: Source and Live Preview modes no longer render HTML for the hidden preview, cutting parse time on large documents by about a third.\n· HTML import recognizes bold, italic and strikethrough set with inline styles."
+}
