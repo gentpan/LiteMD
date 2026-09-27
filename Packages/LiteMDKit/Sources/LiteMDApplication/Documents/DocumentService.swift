@@ -171,11 +171,18 @@ public final class DocumentService {
     }
 
     /// Save As 与 Untitled 的首次保存。用户已在文件面板中确认覆盖。
+    ///
+    /// 目标文件已在另一个标签页中打开时拒绝保存（`.alreadyOpen`），不关闭也不合并那个标签页：
+    /// 同一文件只能有一个 Buffer（spec §110），而那个标签页可能还有未保存的修改。
     public func save(_ document: Document, to url: URL) async throws(LiteMDError) {
+        let url = url.standardizedFileURL
+        if let other = await existingDocument(for: url), other !== document {
+            throw LiteMDError(kind: .save, reason: .alreadyOpen, fileName: url.lastPathComponent)
+        }
+
         await saveCoordinator.waitUntilIdle(document)
         autosave.cancel(document)
 
-        let url = url.standardizedFileURL
         let previousReference = document.fileReference
         let previousDiskRevision = document.knownDiskRevision
         let previousConflict = document.conflict
@@ -276,6 +283,7 @@ public final class DocumentService {
     /// 文档的历史版本与 iCloud 冲突版本（新到旧）。未保存过的文档没有历史。
     public func versionSnapshots(for document: Document) async -> [VersionSnapshot] {
         guard let url = document.fileReference?.url else { return [] }
+        await saveCoordinator.waitForHistoryMigration()
         let history = await versionHistory?.snapshots(for: url) ?? []
         let conflicts = await fileSystem.cloudConflicts(at: url)
         return (history + conflicts).sorted { $0.date > $1.date }
@@ -289,6 +297,7 @@ public final class DocumentService {
 
     /// 立即把磁盘上的当前版本存为历史版本（恢复旧版本前调用，保证恢复可以反悔）。
     public func storeSnapshotOfDiskVersion(_ document: Document) async {
+        await saveCoordinator.waitForHistoryMigration()
         guard let versionHistory, let url = document.fileReference?.url,
               let data = try? await fileSystem.readData(at: url) else { return }
         await versionHistory.storeSnapshot(of: url, data: data, date: Date())
@@ -383,6 +392,7 @@ public final class DocumentService {
 
         guard let current else {
             if let newURL = await locateMovedFile(reference, events: events) {
+                saveCoordinator.itemMoved(from: reference.url, to: newURL)
                 followMove(document, to: newURL)
                 return
             }
@@ -445,13 +455,34 @@ public final class DocumentService {
         guard var reference = document.fileReference else { return }
         reference.url = url
         document.setFileReference(reference)
-        if document.conflict.isConflict { document.conflict = .none }
+        // 文件找到了，“已删除”不再成立；但外部修改造成的冲突仍需用户处理。
+        if document.conflict == .externalDeleted { document.conflict = .none }
+        // 移动期间失败或跳过的自动保存改为写入新位置。
+        if document.isDirty { autosave.documentDidChange(document) }
         parseCoordinator.schedule(document, immediately: true)
         onDocumentsChanged?()
     }
 
-    /// 应用内重命名 / 移动文件或文件夹后调用，更新受影响的文档路径。
+    /// 重命名、移动文件或文件夹，或把它们移到废纸篓之前调用：立即执行等待中的自动保存，
+    /// 并等待进行中的保存完成。否则保存会写回旧路径，把已经移走或删除的文件重新创建出来。
+    public func finishPendingSaves(under url: URL) async {
+        let path = url.standardizedFileURL.path
+        let affected = documents.filter { document in
+            guard let documentPath = document.fileReference?.url.path else { return false }
+            return documentPath == path || documentPath.hasPrefix(path + "/")
+        }
+        for document in affected {
+            if isAutosaveEnabled, document.isDirty, !document.conflict.isConflict {
+                autosave.cancel(document)
+                try? await saveCoordinator.save(document, policy: .ifDirty)
+            }
+            await saveCoordinator.waitUntilIdle(document)
+        }
+    }
+
+    /// 应用内重命名 / 移动文件或文件夹后调用，更新受影响的文档路径与历史版本。
     public func itemMoved(from oldURL: URL, to newURL: URL) {
+        saveCoordinator.itemMoved(from: oldURL, to: newURL)
         let oldPath = oldURL.standardizedFileURL.path
         for document in documents {
             guard let reference = document.fileReference else { continue }

@@ -19,6 +19,8 @@ public struct LiteMDError: Error, Equatable, Sendable {
         case notFound
         case permissionDenied
         case alreadyExists
+        /// 目标文件已在另一个标签页中打开。
+        case alreadyOpen
         case diskFull
         case readOnlyVolume
         case unsupportedEncoding

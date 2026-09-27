@@ -60,7 +60,7 @@ final class GatedFileSystem: FileSystem, @unchecked Sendable {
         pending.forEach { $0.resume() }
     }
 
-    func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL) async throws(LiteMDError) -> DiskRevision {
+    func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL, requireExisting: Bool) async throws(LiteMDError) -> DiskRevision {
         lock.withLock {
             _writeCount += 1
             _writtenTexts.append(text)
@@ -75,7 +75,7 @@ final class GatedFileSystem: FileSystem, @unchecked Sendable {
             }
             if !shouldWait { continuation.resume() }
         }
-        return try await base.writeText(text, encoding: encoding, lineEnding: lineEnding, to: url)
+        return try await base.writeText(text, encoding: encoding, lineEnding: lineEnding, to: url, requireExisting: requireExisting)
     }
 
     func readText(at url: URL) async throws(LiteMDError) -> LoadedText { try await base.readText(at: url) }

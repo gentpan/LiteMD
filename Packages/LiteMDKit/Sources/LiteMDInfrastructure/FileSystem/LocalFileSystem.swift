@@ -162,23 +162,23 @@ public final class LocalFileSystem: FileSystem {
     // MARK: Write
 
     @concurrent
-    public func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL) async throws(LiteMDError) -> DiskRevision {
+    public func writeText(_ text: String, encoding: TextEncoding, lineEnding: LineEnding, to url: URL, requireExisting: Bool) async throws(LiteMDError) -> DiskRevision {
         let data = TextCodec.encode(text, encoding: encoding, lineEnding: lineEnding)
         // iCloud 中的文件通过文件协调写入，避免与同步守护进程互相覆盖。
         guard CloudLocation.isInCloudDrive(url) else {
-            return try Self.writeAtomically(data, to: url)
+            return try Self.writeAtomically(data, to: url, requireExisting: requireExisting)
         }
-        return try Self.coordinatedWrite(data, to: url)
+        return try Self.coordinatedWrite(data, to: url, requireExisting: requireExisting)
     }
 
     /// NSFileCoordinator 写入；协调失败时退回直接写入，不阻断保存。
-    static func coordinatedWrite(_ data: Data, to url: URL) throws(LiteMDError) -> DiskRevision {
+    static func coordinatedWrite(_ data: Data, to url: URL, requireExisting: Bool) throws(LiteMDError) -> DiskRevision {
         let coordinator = NSFileCoordinator()
         var coordinationError: NSError?
         var result: Result<DiskRevision, LiteMDError>?
         coordinator.coordinate(writingItemAt: url, options: [], error: &coordinationError) { coordinatedURL in
             do throws(LiteMDError) {
-                result = .success(try writeAtomically(data, to: coordinatedURL))
+                result = .success(try writeAtomically(data, to: coordinatedURL, requireExisting: requireExisting))
             } catch {
                 result = .failure(error)
             }
@@ -186,18 +186,22 @@ public final class LocalFileSystem: FileSystem {
         if let result {
             return try result.get()
         }
-        return try writeAtomically(data, to: url)
+        return try writeAtomically(data, to: url, requireExisting: requireExisting)
     }
 
     /// document.md → temporary → flush → fsync → atomic replace（spec §81）。
-    static func writeAtomically(_ data: Data, to url: URL) throws(LiteMDError) -> DiskRevision {
+    static func writeAtomically(_ data: Data, to url: URL, requireExisting: Bool = false) throws(LiteMDError) -> DiskRevision {
         let name = url.lastPathComponent
         let target = url.resolvingSymlinksInPath()
         let directory = target.deletingLastPathComponent()
+        let deleted = LiteMDError(kind: .conflict, reason: .externalDeletion, fileName: name)
 
         let existing = try FileStat.load(target, fileName: name)
         if let existing, existing.isDirectory {
             throw LiteMDError(kind: .save, reason: .isDirectory, fileName: name)
+        }
+        if existing == nil, requireExisting {
+            throw deleted
         }
         let permissions = existing.map { $0.mode & 0o7777 } ?? 0o644
 
@@ -237,6 +241,10 @@ public final class LocalFileSystem: FileSystem {
         }
 
         if existing != nil {
+            // 写临时文件期间原文件可能被移走或删除，而 replaceItemAt 会在原位置重新创建它。
+            if requireExisting, try FileStat.load(target, fileName: name) == nil {
+                throw deleted
+            }
             do {
                 // 保留原文件的权限、扩展属性与创建时间。
                 _ = try FileManager.default.replaceItemAt(target, withItemAt: temporaryURL, backupItemName: nil, options: [])
@@ -439,11 +447,13 @@ public final class LocalFileSystem: FileSystem {
     @concurrent
     public func moveItem(from source: URL, to destination: URL) async throws(LiteMDError) {
         let name = source.lastPathComponent
-        let sourceStat = try FileStat.load(source, fileName: name)
+        // 不跟随符号链接：a.md 是指向 b.md 的链接时，跟随后两者是同一个文件，
+        // 会被误判为大小写重命名，用链接覆盖掉真正的 b.md。
+        let sourceStat = try FileStat.load(source, fileName: name, followingSymlinks: false)
         guard let sourceStat else {
             throw LiteMDError(kind: .file, reason: .notFound, fileName: name)
         }
-        let destinationStat = try FileStat.load(destination, fileName: destination.lastPathComponent)
+        let destinationStat = try FileStat.load(destination, fileName: destination.lastPathComponent, followingSymlinks: false)
 
         let result: Int32
         if let destinationStat {
@@ -504,13 +514,13 @@ struct FileStat {
         size == other.size && modifiedAtNanoseconds == other.modifiedAtNanoseconds && identity == other.identity
     }
 
-    /// 文件不存在时返回 nil。跟随符号链接。
-    static func load(_ url: URL, fileName: String?) throws(LiteMDError) -> FileStat? {
+    /// 文件不存在时返回 nil。默认跟随符号链接；`followingSymlinks` 为 false 时描述链接本身。
+    static func load(_ url: URL, fileName: String?, followingSymlinks: Bool = true) throws(LiteMDError) -> FileStat? {
         var info = stat()
         var failure: Int32 = 0
         let result = url.withUnsafeFileSystemRepresentation { path -> Int32 in
             guard let path else { return -1 }
-            let value = stat(path, &info)
+            let value = followingSymlinks ? stat(path, &info) : lstat(path, &info)
             if value != 0 { failure = errno }
             return value
         }

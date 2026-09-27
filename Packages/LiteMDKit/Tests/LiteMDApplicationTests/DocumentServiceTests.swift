@@ -226,6 +226,144 @@ struct SaveCoordinatorTests {
     }
 }
 
+@Suite("Saving around file operations")
+@MainActor
+struct SaveAroundFileOperationTests {
+    /// 保存进行中时重命名：先等保存完成再移动，内容跟着文件走，旧路径不会被重新创建。
+    @Test func renameWaitsForSaveInProgress() async throws {
+        let env = TestEnvironment()
+        let workspace = WorkspaceService(fileSystem: LocalFileSystem())
+        workspace.onItemMoved = { env.service.itemMoved(from: $0, to: $1) }
+        try await workspace.open(env.directory.url)
+        let url = env.directory.file("a.md", "old")
+        let document = try await env.service.openDocument(at: url)
+
+        document.type(" new")
+        env.fileSystem.holdWrites()
+        let save = Task { try await env.service.save(document) }
+        #expect(await waitUntil { env.fileSystem.writeCount == 1 })
+
+        let rename = Task {
+            await env.service.finishPendingSaves(under: url)
+            return try await workspace.rename(url, to: "b")
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(FileManager.default.fileExists(atPath: url.path))
+
+        env.fileSystem.releaseWrites()
+        try await save.value
+        let renamed = try await rename.value
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(env.directory.read(renamed) == "old new")
+        #expect(document.fileReference?.url == renamed)
+        #expect(!document.isDirty)
+    }
+
+    /// 等待中的自动保存在移动前立即执行，而不是之后写回旧路径。
+    @Test func pendingAutosaveIsFlushedBeforeFileOperation() async throws {
+        let env = TestEnvironment(autosave: true)
+        env.service.autosaveDelay = .seconds(30)
+        let url = env.directory.file("Notes/a.md", "old")
+        let document = try await env.service.openDocument(at: url)
+
+        document.type(" new")
+        env.service.noteTextDidChange(document, isComposing: false)
+        #expect(document.saveState == .scheduled)
+
+        await env.service.finishPendingSaves(under: url.deletingLastPathComponent())
+        #expect(env.directory.read(url) == "old new")
+        #expect(!document.isDirty)
+    }
+
+    /// 写入期间文件被移走：不能在旧路径重新创建，进入冲突；跟随移动后保存到新位置。
+    @Test func saveDoesNotRecreateFileMovedDuringWrite() async throws {
+        let env = TestEnvironment()
+        let url = env.directory.file("a.md", "old")
+        let document = try await env.service.openDocument(at: url)
+
+        document.type(" new")
+        env.fileSystem.holdWrites()
+        let save = Task { try await env.service.save(document) }
+        #expect(await waitUntil { env.fileSystem.writeCount == 1 })
+
+        let moved = env.directory.file("b.md")
+        try FileManager.default.moveItem(at: url, to: moved)
+        env.fileSystem.releaseWrites()
+        await #expect(throws: LiteMDError.self) { try await save.value }
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(env.directory.read(moved) == "old")
+        #expect(document.isDirty)
+        #expect(document.conflict == .externalDeleted)
+
+        env.service.itemMoved(from: url, to: moved)
+        #expect(document.conflict == .none)
+        try await env.service.save(document)
+        #expect(env.directory.read(moved) == "old new")
+    }
+
+    /// 写入期间文件被删除（例如移到废纸篓）：不能把它写回来。
+    @Test func saveDoesNotResurrectFileDeletedDuringWrite() async throws {
+        let env = TestEnvironment()
+        let url = env.directory.file("a.md", "old")
+        let document = try await env.service.openDocument(at: url)
+
+        document.type(" new")
+        env.fileSystem.holdWrites()
+        let save = Task { try await env.service.save(document) }
+        #expect(await waitUntil { env.fileSystem.writeCount == 1 })
+
+        try FileManager.default.removeItem(at: url)
+        env.fileSystem.releaseWrites()
+        await #expect(throws: LiteMDError.self) { try await save.value }
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(document.isDirty)
+        #expect(document.conflict == .externalDeleted)
+    }
+
+    /// 同一文件只能有一个 Buffer：Save As 到另一个标签页已打开的文件时拒绝。
+    @Test func saveAsOntoFileOpenInAnotherTabIsRefused() async throws {
+        let env = TestEnvironment()
+        let a = env.directory.file("a.md", "A")
+        let b = env.directory.file("b.md", "B")
+        let first = try await env.service.openDocument(at: a)
+        let second = try await env.service.openDocument(at: b)
+        second.type("-edited")
+
+        do {
+            try await env.service.save(second, to: a)
+            Issue.record("Save As should be refused")
+        } catch {
+            #expect(error.reason == .alreadyOpen)
+        }
+        #expect(env.directory.read(a) == "A")
+        #expect(first.fileReference?.url == a)
+        #expect(second.fileReference?.url == b)
+        #expect(second.isDirty)
+
+        try await env.service.save(second, to: b)
+        #expect(env.directory.read(b) == "B-edited")
+    }
+
+    /// 跟随移动只解除“已删除”，外部修改造成的冲突仍需用户处理。
+    @Test func followingMoveKeepsExternalModificationConflict() async throws {
+        let env = TestEnvironment()
+        let url = env.directory.file("a.md", "old")
+        let document = try await env.service.openDocument(at: url)
+        document.type(" local")
+        try externalWrite("new", to: url)
+        await env.service.handleFileEvents([FileEvent(url: url, flags: .modified)])
+        #expect(document.conflict == .externalModified)
+
+        let moved = env.directory.file("b.md")
+        try FileManager.default.moveItem(at: url, to: moved)
+        env.service.itemMoved(from: url, to: moved)
+        #expect(document.fileReference?.url == moved)
+        #expect(document.conflict == .externalModified)
+    }
+}
+
 @Suite("Version history")
 @MainActor
 struct VersionHistoryTests {
@@ -286,6 +424,36 @@ struct VersionHistoryTests {
         // 与最近一份内容相同的快照不会重复保存。
         await history.storeSnapshot(of: url, data: Data("one two".utf8), date: Date())
         #expect(await history.snapshots(for: url).count == 2)
+    }
+
+    /// 历史按路径保存：重命名文件夹后历史跟随文件，旧路径不再留有历史。
+    @Test func historyFollowsRenamedFolder() async throws {
+        let directory = TemporaryDirectory()
+        let historyDirectory = TemporaryDirectory()
+        let recoveryDirectory = TemporaryDirectory()
+        let history = FileVersionHistoryStore(directory: historyDirectory.url)
+        let service = DocumentService(
+            fileSystem: LocalFileSystem(),
+            parser: LiteMDMarkdownParserStub(),
+            recoveryStore: FileRecoveryStore(directory: recoveryDirectory.url),
+            versionHistory: history
+        )
+        service.isAutosaveEnabled = false
+        let workspace = WorkspaceService(fileSystem: LocalFileSystem())
+        workspace.onItemMoved = { service.itemMoved(from: $0, to: $1) }
+        try await workspace.open(directory.url)
+
+        let url = directory.file("Notes/note.md", "original")
+        let document = try await service.openDocument(at: url)
+        document.type(" v1")
+        try await service.save(document)
+        #expect(await service.versionSnapshots(for: document).count == 1)
+
+        _ = try await workspace.rename(url.deletingLastPathComponent(), to: "Archive")
+        let snapshots = await service.versionSnapshots(for: document)
+        #expect(snapshots.count == 1)
+        #expect(try await service.text(of: try #require(snapshots.first)) == "original")
+        #expect(await history.snapshots(for: url).isEmpty)
     }
 }
 

@@ -496,6 +496,23 @@
         }
       }
     },
+    "A document with this name is open in another tab. Close it before saving over it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A document with this name is open in another tab. Close it before saving over it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同名文档已在另一个标签页中打开。请先关闭它，再覆盖保存。"
+          }
+        }
+      }
+    },
     "A fast, local-first Markdown editor. Your files stay yours.": {
       "extractionState": "manual",
       "localizations": {
