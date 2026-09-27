@@ -50,11 +50,9 @@ struct HTMLRenderer: MarkupVisitor {
     }
 
     mutating func visitHeading(_ heading: Heading) {
-        let title = placeholders.plainText(heading.plainText)
-        let anchor = slugger.slug(for: title)
-        let line = heading.range?.lowerBound.line ?? 1
-        let offset = line - 1 < lineStartOffsets.count ? lineStartOffsets[line - 1] : 0
-        headings.append(HeadingItem(index: headings.count, level: heading.level, title: title, line: line, offset: offset, anchor: anchor))
+        let item = HeadingCollector.item(for: heading, index: headings.count, placeholders: placeholders, lineStartOffsets: lineStartOffsets, slugger: &slugger)
+        headings.append(item)
+        let anchor = item.anchor
 
         output += "<h\(heading.level) id=\"\(HTMLEscaping.attribute(anchor))\"\(lineAttribute(heading))>"
         defaultVisit(heading)

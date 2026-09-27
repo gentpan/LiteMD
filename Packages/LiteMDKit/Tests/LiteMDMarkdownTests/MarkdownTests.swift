@@ -26,6 +26,29 @@ struct MarkdownParserTests {
         }
     }
 
+    @Test func outlineWithoutHTMLMatchesFullRender() {
+        let text = """
+        ---
+        title: x
+        ---
+        # Intro [[Note|Alias]]
+
+        > ## Quoted $x^2$
+
+        - item
+          ### Nested
+        # Intro [[Note|Alias]]
+        """
+        let full = parse(text)
+        let outline = parser.parseSynchronously(text, documentID: DocumentID(), revision: 7, rendersHTML: false)
+        #expect(full.includesHTML)
+        #expect(!outline.includesHTML)
+        #expect(outline.html.isEmpty)
+        #expect(outline.headings == full.headings)
+        #expect(outline.headings.map(\.anchor) == ["intro-alias", "quoted-x2", "nested", "intro-alias-1"])
+        #expect(outline.statistics == full.statistics)
+    }
+
     @Test func frontMatterKeepsLineNumbersAligned() {
         let result = parse("---\ntitle: LiteMD\ntags:\n  - a\n---\n# Heading\n")
         #expect(result.headings.first?.line == 6)

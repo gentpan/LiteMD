@@ -69,7 +69,12 @@ public extension FileSystem {
 }
 
 public struct MarkdownParseOptions: Sendable, Equatable {
-    public init() {}
+    /// 是否生成预览 HTML。没有显示预览时（源码、实时预览模式）只需要大纲与统计，省掉渲染。
+    public var rendersHTML: Bool
+
+    public init(rendersHTML: Bool = true) {
+        self.rendersHTML = rendersHTML
+    }
 }
 
 public protocol MarkdownParsing: Sendable {

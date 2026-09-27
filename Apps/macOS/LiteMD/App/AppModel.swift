@@ -85,6 +85,7 @@ final class AppModel {
     var editorMode: EditorMode = .split {
         // 同步滚动只在分栏时跟随编辑区；在其他模式下滚动过，切回分栏时补一次，预览才不会停在旧位置。
         didSet {
+            documents.rendersPreviewHTML = editorMode == .split
             if editorMode == .split, oldValue != .split { syncPreviewScroll() }
         }
     }

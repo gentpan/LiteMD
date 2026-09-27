@@ -8,7 +8,9 @@ import Observation
 public final class DocumentService {
     /// 标签页顺序。
     public private(set) var documents: [Document] = []
-    public var activeDocumentID: DocumentID?
+    public var activeDocumentID: DocumentID? {
+        didSet { if activeDocumentID != oldValue { renderPreviewIfNeeded() } }
+    }
 
     @ObservationIgnored private let fileSystem: any FileSystem
     @ObservationIgnored private let recoveryStore: any RecoveryStoring
@@ -58,6 +60,24 @@ public final class DocumentService {
     public var autosaveDelay: Duration {
         get { autosave.delay }
         set { autosave.delay = newValue }
+    }
+
+    /// 当前是否显示预览。不显示时解析只产出大纲与统计，不生成 HTML：
+    /// 源码与实时预览模式下，每次改动都能省掉整篇渲染。
+    public var rendersPreviewHTML: Bool {
+        get { parseCoordinator.rendersHTML }
+        set {
+            guard newValue != parseCoordinator.rendersHTML else { return }
+            parseCoordinator.rendersHTML = newValue
+            renderPreviewIfNeeded()
+        }
+    }
+
+    /// 需要预览、而当前文档的解析结果里没有 HTML（在不显示预览时解析的）时，立即补一次。
+    private func renderPreviewIfNeeded() {
+        guard parseCoordinator.rendersHTML, let document = activeDocument,
+              document.parseResult?.includesHTML == false else { return }
+        parseCoordinator.schedule(document, immediately: true)
     }
 
     public var recoveryInterval: Duration {

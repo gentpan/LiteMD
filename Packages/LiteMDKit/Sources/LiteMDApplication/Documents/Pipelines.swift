@@ -72,6 +72,8 @@ final class AutosaveCoordinator {
 final class ParseCoordinator {
     private let parser: any MarkdownParsing
     var baseDelay: Duration = .milliseconds(150)
+    /// 为 false 时只解析大纲与统计，不生成预览 HTML。
+    var rendersHTML = true
     private var tasks: [DocumentID: Task<Void, Never>] = [:]
 
     init(parser: any MarkdownParsing) {
@@ -84,6 +86,7 @@ final class ParseCoordinator {
         let sizePenalty = Duration.milliseconds(document.buffer.length / 2_000)
         let delay = immediately ? .zero : min(.seconds(1), baseDelay + sizePenalty)
         let parser = self.parser
+        let options = MarkdownParseOptions(rendersHTML: rendersHTML)
 
         tasks[document.id] = Task { [weak document] in
             if delay > .zero {
@@ -92,7 +95,7 @@ final class ParseCoordinator {
             guard !Task.isCancelled, let document, !document.isComposing else { return }
             let revision = document.revision
             let text = document.buffer.snapshot()
-            let result = await parser.parse(text, documentID: document.id, revision: revision, options: MarkdownParseOptions())
+            let result = await parser.parse(text, documentID: document.id, revision: revision, options: options)
             guard !Task.isCancelled, result.revision == document.revision else { return }
             document.parseResult = result
         }

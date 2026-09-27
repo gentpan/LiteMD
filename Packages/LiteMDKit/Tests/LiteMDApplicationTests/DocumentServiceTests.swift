@@ -26,6 +26,21 @@ struct DocumentRevisionTests {
         #expect(env.directory.read(url) == "hello world")
     }
 
+    @Test func previewHTMLIsOnlyRenderedWhilePreviewIsShown() async throws {
+        let env = TestEnvironment()
+        env.service.rendersPreviewHTML = false
+        let url = env.directory.file("a.md", "# Title\n\nBody")
+        let document = try await env.service.openDocument(at: url)
+        #expect(await waitUntil { document.parseResult != nil })
+        #expect(document.parseResult?.includesHTML == false)
+        #expect(document.parseResult?.headings.map(\.title) == ["Title"])
+
+        // 切到分栏预览：当前文档立即补一次带 HTML 的解析。
+        env.service.rendersPreviewHTML = true
+        #expect(await waitUntil { document.parseResult?.includesHTML == true })
+        #expect(document.parseResult?.html.contains("<h1") == true)
+    }
+
     @Test func openingSameFileTwiceFocusesExistingDocument() async throws {
         let env = TestEnvironment()
         let url = env.directory.file("a.md", "x")

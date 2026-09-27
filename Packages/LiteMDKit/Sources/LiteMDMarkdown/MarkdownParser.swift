@@ -16,11 +16,22 @@ public struct MarkdownParser: MarkdownParsing {
 
     @concurrent
     public func parse(_ text: String, documentID: DocumentID, revision: Int, options: MarkdownParseOptions) async -> ParseResult {
-        parseSynchronously(text, documentID: documentID, revision: revision)
+        parseSynchronously(text, documentID: documentID, revision: revision, rendersHTML: options.rendersHTML)
     }
 
-    public func parseSynchronously(_ text: String, documentID: DocumentID, revision: Int) -> ParseResult {
+    public func parseSynchronously(_ text: String, documentID: DocumentID, revision: Int, rendersHTML: Bool = true) -> ParseResult {
         let prepared = Self.prepare(text)
+        guard rendersHTML else {
+            var collector = HeadingCollector(placeholders: prepared.placeholders, lineStartOffsets: Self.lineStartOffsets(text))
+            collector.visit(prepared.document)
+            return ParseResult(
+                documentID: documentID,
+                revision: revision,
+                headings: collector.headings,
+                statistics: DocumentStatisticsCounter.compute(text),
+                includesHTML: false
+            )
+        }
         var renderer = HTMLRenderer(placeholders: prepared.placeholders, lineStartOffsets: Self.lineStartOffsets(text), fileURLPrefix: fileURLPrefix)
         renderer.visit(prepared.document)
 

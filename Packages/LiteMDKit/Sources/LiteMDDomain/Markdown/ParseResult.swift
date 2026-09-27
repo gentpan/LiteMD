@@ -44,19 +44,23 @@ public struct ParseResult: Sendable {
     public var statistics: DocumentStatistics
     /// 已净化的 HTML 片段，块级元素带 `data-line` 以支持滚动同步。
     public var html: String
+    /// 解析时是否生成了 HTML。为 false 时 `html` 为空，需要预览时要重新解析。
+    public var includesHTML: Bool
 
     public init(
         documentID: DocumentID,
         revision: Int,
         headings: [HeadingItem] = [],
         statistics: DocumentStatistics = DocumentStatistics(),
-        html: String = ""
+        html: String = "",
+        includesHTML: Bool = true
     ) {
         self.documentID = documentID
         self.revision = revision
         self.headings = headings
         self.statistics = statistics
         self.html = html
+        self.includesHTML = includesHTML
     }
 }
 
