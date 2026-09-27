@@ -74,7 +74,6 @@ private struct Scanner {
 
     private static let newline: UInt16 = 0x0A
     private static let backtick: UInt16 = 0x60
-    private static let tilde: UInt16 = 0x7E
     private static let dollar: UInt16 = 0x24
     private static let backslash: UInt16 = 0x5C
     private static let bracketOpen: UInt16 = 0x5B
@@ -90,7 +89,7 @@ private struct Scanner {
     mutating func run() {
         var lineStart = 0
         var lineNumber = 1
-        var fence: (char: UInt16, count: Int)?
+        var fence: MarkdownFence?
         var inFrontMatter = false
         var displayMath: (start: Int, line: Int)?
 
@@ -126,13 +125,13 @@ private struct Scanner {
             }
 
             if let open = fence {
-                if let marker = fenceMarker(lineStart, lineEnd), marker.char == open.char, marker.count >= open.count {
+                if let marker = MarkdownFence.parse(units, lineStart, lineEnd), open.isClosed(by: marker) {
                     fence = nil
                 }
                 if lineEnd >= units.count { break }
                 continue
             }
-            if let marker = fenceMarker(lineStart, lineEnd) {
+            if let marker = MarkdownFence.parse(units, lineStart, lineEnd) {
                 fence = marker
                 if lineEnd >= units.count { break }
                 continue
@@ -224,8 +223,8 @@ private struct Scanner {
         return nil
     }
 
+    /// `scanInline` 已经跳过了转义字符，这里不必再看前一个字符（`\\$x$` 中的 `$` 前是字面反斜杠）。
     private func math(at open: Int, end: Int, line: Int) -> MathSpan? {
-        if open > 0, units[open - 1] == Self.backslash { return nil }
         let isDisplay = open + 1 < end && units[open + 1] == Self.dollar
         let delimiter = isDisplay ? 2 : 1
         let contentStart = open + delimiter
@@ -341,18 +340,5 @@ private struct Scanner {
         var last = end
         while last > start, units[last - 1] == Self.space || units[last - 1] == Self.tab { last -= 1 }
         return Array(units[start..<last]) == Array(delimiter.utf16)
-    }
-
-    private func fenceMarker(_ start: Int, _ end: Int) -> (char: UInt16, count: Int)? {
-        var index = start
-        var spaces = 0
-        while index < end, units[index] == Self.space, spaces < 3 {
-            index += 1
-            spaces += 1
-        }
-        guard index < end, units[index] == Self.backtick || units[index] == Self.tilde else { return nil }
-        let char = units[index]
-        let count = runLength(index, end, char)
-        return count >= 3 ? (char, count) : nil
     }
 }

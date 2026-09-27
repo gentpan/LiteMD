@@ -20,17 +20,12 @@ public struct MarkdownParser: MarkdownParsing {
     }
 
     public func parseSynchronously(_ text: String, documentID: DocumentID, revision: Int) -> ParseResult {
-        let frontMatter = FrontMatter.split(text)
-        let extensions = MarkdownExtensionScanner.scan(frontMatter.body)
-        let placeholders = ExtensionPlaceholders(text: frontMatter.body, scan: extensions)
-        let document = Document(parsing: placeholders.text, options: [.disableSmartOpts])
+        let prepared = Self.prepare(text)
+        var renderer = HTMLRenderer(placeholders: prepared.placeholders, lineStartOffsets: Self.lineStartOffsets(text), fileURLPrefix: fileURLPrefix)
+        renderer.visit(prepared.document)
 
-        var renderer = HTMLRenderer(lineStartOffsets: Self.lineStartOffsets(text), fileURLPrefix: fileURLPrefix)
-        renderer.placeholders = placeholders.isEmpty ? nil : placeholders
-        renderer.visit(document)
-
-        var html = placeholders.isEmpty ? renderer.output : placeholders.restoreSource(in: renderer.output)
-        if let yaml = frontMatter.yaml {
+        var html = renderer.output
+        if let yaml = prepared.frontMatter {
             html = "<pre class=\"front-matter\" data-line=\"1\"><code>\(HTMLEscaping.text(yaml))</code></pre>\n" + html
         }
 
@@ -41,10 +36,26 @@ public struct MarkdownParser: MarkdownParsing {
             links: renderer.links,
             images: renderer.images,
             codeBlocks: renderer.codeBlocks,
-            wikiLinks: extensions.wikiLinks,
+            wikiLinks: prepared.wikiLinks,
             statistics: DocumentStatisticsCounter.compute(text),
             html: html
         )
+    }
+
+    /// Preview、导出与复制共用的前半段：拆出 Front Matter，扩展语法换成占位符，再交给 CommonMark。
+    struct Prepared {
+        var frontMatter: String?
+        var placeholders: ExtensionPlaceholders
+        var document: Document
+        var wikiLinks: [WikiLink]
+    }
+
+    static func prepare(_ text: String) -> Prepared {
+        let frontMatter = FrontMatter.split(text)
+        let scan = MarkdownExtensionScanner.scan(frontMatter.body)
+        let placeholders = ExtensionPlaceholders(text: frontMatter.body, scan: scan)
+        let document = Document(parsing: placeholders.text, options: [.disableSmartOpts])
+        return Prepared(frontMatter: frontMatter.yaml, placeholders: placeholders, document: document, wikiLinks: scan.wikiLinks)
     }
 
     static func lineStartOffsets(_ text: String) -> [Int] {

@@ -7,9 +7,10 @@ public struct EpubExporter: Sendable {
     public init() {}
 
     public func export(_ markdown: String, options: ExportOptions, stylesheet: String) throws(ConversionError) -> Data {
-        let parser = MarkdownParser()
-        var body = parser.xhtmlFragment(from: markdown)
-        let headings = parser.parseSynchronously(markdown, documentID: .init(), revision: 0).headings
+        // 正文与目录出自同一次渲染，目录锚点才能与正文 id 对上。
+        let fragment = MarkdownParser().xhtmlFragment(from: markdown)
+        var body = fragment.html
+        let headings = fragment.headings
 
         var images: [(path: String, data: Data, mediaType: String)] = []
         body = Self.rewriteImages(in: body, options: options, images: &images)

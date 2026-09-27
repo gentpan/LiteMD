@@ -100,6 +100,8 @@ public enum HTMLSanitizer {
 
     /// 返回 nil 表示删除属性；返回 `.some(nil)` 表示保留无值属性。
     private static func sanitizeAttribute(name: String, value: String?, fileURLPrefix: String?) -> String??  {
+        // 属性名原样输出，只保留规范的名字，引号、括号之类一律丢掉。
+        guard isValidAttributeName(name) else { return nil }
         if name.hasPrefix("on") || blockedAttributes.contains(name) { return nil }
         guard let value else { return .some(nil) }
         if urlAttributes.contains(name) {
@@ -195,6 +197,13 @@ public enum HTMLSanitizer {
             }
         }
         return nil
+    }
+
+    private static func isValidAttributeName(_ name: String) -> Bool {
+        guard let first = name.unicodeScalars.first, first.isASCII, first.properties.isAlphabetic || first == "_" || first == ":" else { return false }
+        return name.unicodeScalars.allSatisfy { scalar in
+            scalar.isASCII && (scalar.properties.isAlphabetic || ("0"..."9").contains(scalar) || "_:.-".unicodeScalars.contains(scalar))
+        }
     }
 
     private static func isTagNameScalar(_ scalar: Unicode.Scalar) -> Bool {

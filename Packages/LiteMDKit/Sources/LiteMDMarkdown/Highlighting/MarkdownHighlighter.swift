@@ -1,4 +1,5 @@
 import Foundation
+import LiteMDDomain
 
 public enum HighlightKind: UInt8, Sendable, Hashable, CaseIterable {
     case heading1
@@ -77,15 +78,6 @@ public struct MarkdownHighlighter: Sendable {
         scanner.scanDocument()
         return scanner.sortedTokens()
     }
-
-    /// 高亮一个独立片段（通常是正在编辑的段落），按普通上下文处理。
-    public func tokens(inFragment fragment: String, baseOffset: Int) -> [HighlightToken] {
-        var scanner = HighlightScanner(units: Array(fragment.utf16), maximumInlineLineLength: maximumInlineLineLength, allowFrontMatter: false)
-        scanner.scanDocument()
-        return scanner.sortedTokens().map { token in
-            HighlightToken(range: NSRange(location: token.range.location + baseOffset, length: token.range.length), kind: token.kind)
-        }
-    }
 }
 
 private enum Unit {
@@ -118,13 +110,11 @@ private enum Unit {
 private struct HighlightScanner {
     let units: [UInt16]
     let maximumInlineLineLength: Int
-    let allowFrontMatter: Bool
     private var tokens: [(order: Int, token: HighlightToken)] = []
 
-    init(units: [UInt16], maximumInlineLineLength: Int, allowFrontMatter: Bool = true) {
+    init(units: [UInt16], maximumInlineLineLength: Int) {
         self.units = units
         self.maximumInlineLineLength = maximumInlineLineLength
-        self.allowFrontMatter = allowFrontMatter
     }
 
     mutating func sortedTokens() -> [HighlightToken] {
@@ -147,7 +137,7 @@ private struct HighlightScanner {
     mutating func scanDocument() {
         var lineStart = 0
         var lineIndex = 0
-        var fence: (char: UInt16, count: Int)?
+        var fence: MarkdownFence?
         var inFrontMatter = false
         var inTable = false
         var inDisplayMath = false
@@ -160,22 +150,22 @@ private struct HighlightScanner {
             if inFrontMatter {
                 emit(lineStart, lineEnd, .frontMatter)
                 if isFrontMatterDelimiter(lineStart, lineEnd, allowDots: true) { inFrontMatter = false }
-            } else if allowFrontMatter, lineIndex == 0, isFrontMatterDelimiter(lineStart, lineEnd, allowDots: false), hasClosingFrontMatter(after: lineEnd) {
+            } else if lineIndex == 0, isFrontMatterDelimiter(lineStart, lineEnd, allowDots: false), hasClosingFrontMatter(after: lineEnd) {
                 emit(lineStart, lineEnd, .frontMatter)
                 inFrontMatter = true
             } else if inDisplayMath {
                 emit(lineStart, lineEnd, .math)
                 if trimmedEnds(lineStart, lineEnd, with: Unit.dollar, count: 2) { inDisplayMath = false }
             } else if let open = fence {
-                if let marker = fenceMarker(lineStart, lineEnd), marker.char == open.char, marker.count >= open.count, marker.infoIsEmpty {
+                if let marker = MarkdownFence.parse(units, lineStart, lineEnd), open.isClosed(by: marker) {
                     emit(lineStart, lineEnd, .codeFence)
                     fence = nil
                 } else {
                     emit(lineStart, lineEnd, .codeBlock)
                 }
-            } else if let marker = fenceMarker(lineStart, lineEnd) {
+            } else if let marker = MarkdownFence.parse(units, lineStart, lineEnd) {
                 emit(lineStart, lineEnd, .codeFence)
-                fence = (marker.char, marker.count)
+                fence = marker
                 inTable = false
             } else if startsDisplayMath(lineStart, lineEnd) {
                 emit(lineStart, lineEnd, .math)
@@ -327,30 +317,6 @@ private struct HighlightScanner {
             lineStart = lineEnd + 1
         }
         return false
-    }
-
-    private func fenceMarker(_ start: Int, _ end: Int) -> (char: UInt16, count: Int, infoIsEmpty: Bool)? {
-        var index = start
-        var spaces = 0
-        while index < end, units[index] == Unit.space, spaces < 3 {
-            index += 1
-            spaces += 1
-        }
-        guard index < end, units[index] == Unit.backtick || units[index] == Unit.tilde else { return nil }
-        let char = units[index]
-        var count = 0
-        while index < end, units[index] == char {
-            count += 1
-            index += 1
-        }
-        guard count >= 3 else { return nil }
-        var infoIsEmpty = true
-        while index < end {
-            if units[index] != Unit.space, units[index] != Unit.tab { infoIsEmpty = false }
-            if char == Unit.backtick, units[index] == Unit.backtick { return nil }
-            index += 1
-        }
-        return (char, count, infoIsEmpty)
     }
 
     private func isThematicBreak(_ start: Int, _ end: Int) -> Bool {

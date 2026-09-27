@@ -59,4 +59,35 @@ struct MarkdownExtensionScannerTests {
         #expect(math[1].tex == "x")
         #expect(math[1].line == 8)
     }
+
+    @Test func inlineCodeAtLineStartIsNotAFence() {
+        let result = MarkdownExtensionScanner.scan("```ls``` lists files\n\n[[Note]] and $x^2$")
+        #expect(result.wikiLinks.map(\.target) == ["Note"])
+        #expect(result.math.map(\.tex) == ["x^2"])
+    }
+
+    @Test func fenceClosesOnlyOnBareMarker() {
+        let result = MarkdownExtensionScanner.scan("```\n```swift\n[[in code]]\n```\n[[after]]")
+        #expect(result.wikiLinks.map(\.target) == ["after"])
+    }
+
+    @Test func mathAfterEscapedBackslash() {
+        #expect(MarkdownExtensionScanner.scan("\\\\$x$").math.map(\.tex) == ["x"])
+        #expect(MarkdownExtensionScanner.scan("\\$x$").math.isEmpty)
+    }
+
+    @Test func fenceMarkerFollowsCommonMark() {
+        func fence(_ line: String) -> MarkdownFence? {
+            let units = Array(line.utf16)
+            return MarkdownFence.parse(units, 0, units.count)
+        }
+        #expect(fence("```swift") == MarkdownFence(character: 0x60, length: 3, infoIsEmpty: false))
+        #expect(fence("   ~~~~ ") == MarkdownFence(character: 0x7E, length: 4, infoIsEmpty: true))
+        #expect(fence("~~~ a`b")?.character == 0x7E)
+        #expect(fence("    ```") == nil)
+        #expect(fence("```ls```") == nil)
+        #expect(fence("``") == nil)
+        #expect(fence("```")?.isClosed(by: MarkdownFence(character: 0x60, length: 4, infoIsEmpty: true)) == true)
+        #expect(fence("````")?.isClosed(by: MarkdownFence(character: 0x60, length: 3, infoIsEmpty: true)) == false)
+    }
 }
