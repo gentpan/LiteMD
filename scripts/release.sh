@@ -99,9 +99,14 @@ if [[ $UPDATES == 1 ]]; then
 fi
 
 # 中间产物 LiteMD.app 已经装进 DMG 和 ZIP 了。留着它，Spotlight 和“打开方式”里就会多出一个 LiteMD。
+# 归档时 Xcode 在中间目录登记过一份（产物随后移进 .xcarchive，登记还留着），一并注销。
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister
 "$LSREGISTER" -u "$PWD/$APP" 2>/dev/null || true
 rm -rf "$APP"
+OBJROOT=$(awk -F' = ' '/ OBJROOT /{print $2; exit}' <<<"$SETTINGS")
+if [[ -n "$OBJROOT" ]]; then
+  "$LSREGISTER" -u "$OBJROOT/ArchiveIntermediates/LiteMD/InstallationBuildProductsLocation/Applications/LiteMD.app" 2>/dev/null || true
+fi
 
 echo
 echo "Done:"
