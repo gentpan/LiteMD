@@ -190,7 +190,7 @@ public final class LocalFileSystem: FileSystem {
     }
 
     /// document.md → temporary → flush → fsync → atomic replace（spec §81）。
-    static func writeAtomically(_ data: Data, to url: URL, requireExisting: Bool = false) throws(LiteMDError) -> DiskRevision {
+    static func writeAtomically(_ data: Data, to url: URL, requireExisting: Bool) throws(LiteMDError) -> DiskRevision {
         let name = url.lastPathComponent
         let target = url.resolvingSymlinksInPath()
         let directory = target.deletingLastPathComponent()

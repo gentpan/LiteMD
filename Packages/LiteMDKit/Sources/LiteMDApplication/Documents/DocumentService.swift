@@ -472,7 +472,8 @@ public final class DocumentService {
             return documentPath == path || documentPath.hasPrefix(path + "/")
         }
         for document in affected {
-            if isAutosaveEnabled, document.isDirty, !document.conflict.isConflict {
+            // 与自动保存的条件一致：IME 组合中的内容不写入，跟随移动后再保存到新位置。
+            if isAutosaveEnabled, document.isDirty, !document.isComposing, !document.conflict.isConflict {
                 autosave.cancel(document)
                 try? await saveCoordinator.save(document, policy: .ifDirty)
             }
