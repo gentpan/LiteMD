@@ -6,7 +6,7 @@
 
 [litemd.app](https://litemd.app) · [中文说明](README.zh-CN.md)
 
-[![Download](https://img.shields.io/badge/download-0.1.1-2563EB)](https://litemd.app)
+[![Download](https://img.shields.io/badge/download-0.1.2-2563EB)](https://litemd.app)
 [![Platform](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![Universal](https://img.shields.io/badge/binary-universal-111827)](https://litemd.app)
 [![License](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)

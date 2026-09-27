@@ -6,7 +6,7 @@
 
 [litemd.app](https://litemd.app) · [English](README.md)
 
-[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.1-2563EB)](https://litemd.app)
+[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.2-2563EB)](https://litemd.app)
 [![系统](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![架构](https://img.shields.io/badge/%E9%80%9A%E7%94%A8%E4%BA%8C%E8%BF%9B%E5%88%B6-universal-111827)](https://litemd.app)
 [![许可证](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)
