@@ -517,6 +517,7 @@ final class AppModel {
         guard choice == 1 else { return }
         Task {
             do {
+                await documents.finishPendingSaves(under: root)
                 try await fileSystem.moveItem(from: root, to: destination)
                 // 和文件树里的移动一样善后：已打开的标签改指向新位置，文件夹的图标与颜色跟着走。
                 documents.itemMoved(from: root, to: destination)

@@ -112,6 +112,9 @@ extension AppModel {
             await workspace.refreshDirectory(folder)
             workspace.invalidateMarkdownFileCache()
             await openDocument(url)
+        } catch let error as LiteMDError {
+            // 这是文件夹里的操作：错误标题应是“无法创建”，而不是“无法打开”。
+            SystemIntegration.present(error.with(kind: .workspace))
         } catch {
             SystemIntegration.present(error)
         }
