@@ -121,6 +121,26 @@ struct DocxTests {
         #expect(document.contains("<w:tbl>"))
     }
 
+    @Test func nestedOrderedListKeepsStartNumber() throws {
+        let data = try DocxExporter().export("1. a\n\n   3. x\n", options: ExportOptions(title: "Lists"))
+        let numbering = String(decoding: try ZipArchive(data: data).data(for: "word/numbering.xml"), as: UTF8.self)
+        #expect(numbering.contains("<w:lvlOverride w:ilvl=\"1\"><w:startOverride w:val=\"3\"/></w:lvlOverride>"))
+        #expect(numbering.contains("<w:lvlOverride w:ilvl=\"0\"><w:startOverride w:val=\"1\"/></w:lvlOverride>"))
+    }
+
+    @Test func rendersExtensionsAndDropsControlCharacters() throws {
+        let data = try DocxExporter().export("[[Note|Alias]] and $x_1^2$ a\u{0C}b", options: ExportOptions(title: "T\u{01}"))
+        let archive = try ZipArchive(data: data)
+        let document = String(decoding: try archive.data(for: "word/document.xml"), as: UTF8.self)
+        #expect(document.contains("<w:t xml:space=\"preserve\">Alias</w:t>"))
+        #expect(document.contains("<w:rStyle w:val=\"VerbatimChar\"/></w:rPr><w:t xml:space=\"preserve\">x_1^2</w:t>"))
+        #expect(!document.contains("[[Note"))
+        #expect(!document.contains("\u{0C}"))
+        for part in ["word/document.xml", "docProps/core.xml"] {
+            #expect(throws: Never.self) { try XMLTree.parse(try archive.data(for: part)) }
+        }
+    }
+
     @Test func roundTripsThroughImporter() throws {
         let folder = TemporaryFolder()
         try tinyPNG.write(to: folder.url.appendingPathComponent("logo.png"))
@@ -311,6 +331,66 @@ struct WebAndTextConversionTests {
         let result = try CsvImporter().convert(csv)
         #expect(result.markdown == "| name | note |\n| --- | --- |\n| LiteMD, app | say \"hi\" |\n| plain | multi<br>line |\n")
         #expect(CsvImporter.detectDelimiter("a;b;c\n1;2;3") == ";")
+    }
+
+    @Test func epubPackagesImagesStructurally() throws {
+        let folder = TemporaryFolder()
+        try tinyPNG.write(to: folder.url.appendingPathComponent("logo.png"))
+        try tinyPNG.write(to: folder.url.appendingPathComponent("it's.png"))
+        try tinyPNG.write(to: folder.url.appendingPathComponent("absolute.png"))
+        let absolute = folder.url.appendingPathComponent("absolute.png").absoluteString
+        let markdown = """
+        ![a](logo.png) ![b](logo.png) ![c](it's.png) ![d](\(absolute)) ![[logo.png]]
+
+        ```html
+        <img src="logo.png">
+        ```
+        """
+        let data = try EpubExporter().export(markdown, options: ExportOptions(title: "Images", documentDirectory: folder.url), stylesheet: "")
+        let archive = try ZipArchive(data: data)
+        let chapter = String(decoding: try archive.data(for: "OEBPS/chapter.xhtml"), as: UTF8.self)
+        #expect(chapter.contains("<code class=\"language-html\">&lt;img src=\"logo.png\"&gt;"))
+        #expect(chapter.contains("<img src=\"images/image1.png\" alt=\"a\"/> <img src=\"images/image1.png\" alt=\"b\"/>"))
+        #expect(chapter.contains("<img src=\"images/image2.png\" alt=\"c\"/>"))
+        #expect(chapter.contains("<img src=\"images/image3.png\" alt=\"d\"/>"))
+        #expect(chapter.contains("<img class=\"wikilink-embed\" src=\"images/image1.png\""))
+        #expect(archive.orderedPaths.filter { $0.hasPrefix("OEBPS/images/") }.count == 3)
+    }
+
+    @Test func epubTableOfContentsMatchesBodyAndStaysValidXML() throws {
+        let markdown = "# Intro [[Note|Alias]]\n\n## Math $x_1$\n\na\u{0C}b \u{FFFE}\n"
+        let data = try EpubExporter().export(markdown, options: ExportOptions(title: "Book"), stylesheet: "")
+        let archive = try ZipArchive(data: data)
+        let navigation = String(decoding: try archive.data(for: "OEBPS/nav.xhtml"), as: UTF8.self)
+        let chapter = String(decoding: try archive.data(for: "OEBPS/chapter.xhtml"), as: UTF8.self)
+        #expect(navigation.contains("<a href=\"chapter.xhtml#intro-alias\">Intro Alias</a>"))
+        #expect(chapter.contains("<h1 id=\"intro-alias\">"))
+        #expect(navigation.contains("<a href=\"chapter.xhtml#math-x_1\">Math $x_1$</a>"))
+        #expect(chapter.contains("<h2 id=\"math-x_1\">"))
+        for part in ["OEBPS/nav.xhtml", "OEBPS/chapter.xhtml"] {
+            #expect(throws: Never.self) { try XMLTree.parse(try archive.data(for: part)) }
+        }
+    }
+
+    @Test func latexHandlesListStartsNestingAndPackages() {
+        let latex = LatexExporter().export("0. zero\n\n1. a\n\n   3. b\n\n- [ ] todo\n\na < b > c\n", options: ExportOptions(title: "T"))
+        #expect(latex.contains("\\begin{enumerate}\n\\setcounter{enumi}{-1}\n\\item zero"))
+        #expect(latex.contains("\\setcounter{enumii}{2}\n\\item b"))
+        #expect(!latex.contains("\\setcounter{enumi}{2}"))
+        #expect(latex.contains("\\usepackage{amssymb}"))
+        #expect(latex.contains("\\usepackage[T1]{fontenc}"))
+        #expect(latex.contains("\\item[$\\square$] todo"))
+    }
+
+    @Test func latexKeepsMathAndGuardsImagePaths() {
+        let markdown = "Inline $x_1$ and $\\{1,2\\}$, [[Note|Alias]].\n\n$$\\frac{1}{2}$$\n\n![photo](my%20photo.png) ![pct](a%25b.png) ![web](https://x.y/a.png)\n"
+        let latex = LatexExporter().export(markdown, options: ExportOptions(title: "T"))
+        #expect(latex.contains("Inline $x_1$ and $\\{1,2\\}$, Alias."))
+        #expect(latex.contains("\\[\\frac{1}{2}\\]"))
+        #expect(latex.contains("\\includegraphics[width=0.8\\linewidth]{my photo.png}"))
+        #expect(!latex.contains("a%b.png"))
+        #expect(latex.contains("pct"))
+        #expect(latex.contains("web"))
     }
 
     @Test func latexEscapesAndUsesCtexForChinese() {

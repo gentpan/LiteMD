@@ -302,31 +302,32 @@ public enum URLSanitizer {
 }
 
 public enum HTMLEscaping {
+    /// 元素内容。
     public static func text(_ value: String) -> String {
-        var result = ""
-        result.reserveCapacity(value.utf8.count)
-        for character in value.unicodeScalars {
-            switch character {
-            case "&": result += "&amp;"
-            case "<": result += "&lt;"
-            case ">": result += "&gt;"
-            default: result.unicodeScalars.append(character)
-            }
-        }
-        return result
+        escape(value, quotes: false)
     }
 
+    /// 属性值。HTML 与 XML（DOCX、EPUB）通用。
     public static func attribute(_ value: String) -> String {
+        escape(value, quotes: true)
+    }
+
+    /// XML 1.0 不允许的字符（除制表、换行、回车外的 C0 控制字符，以及 U+FFFE、U+FFFF）直接丢弃：
+    /// 同样的转义也用于 EPUB 的 XHTML 与 DOCX，留下一个 U+000C 整个文件就打不开；HTML 里它们本来也不该出现。
+    private static func escape(_ value: String, quotes: Bool) -> String {
         var result = ""
         result.reserveCapacity(value.utf8.count)
-        for character in value.unicodeScalars {
-            switch character {
+        for scalar in value.unicodeScalars {
+            switch scalar {
             case "&": result += "&amp;"
             case "<": result += "&lt;"
             case ">": result += "&gt;"
-            case "\"": result += "&quot;"
-            case "'": result += "&#39;"
-            default: result.unicodeScalars.append(character)
+            case "\"" where quotes: result += "&quot;"
+            case "'" where quotes: result += "&#39;"
+            default:
+                if scalar.value < 0x20, scalar != "\n", scalar != "\r", scalar != "\t" { continue }
+                if scalar.value == 0xFFFE || scalar.value == 0xFFFF { continue }
+                result.unicodeScalars.append(scalar)
             }
         }
         return result

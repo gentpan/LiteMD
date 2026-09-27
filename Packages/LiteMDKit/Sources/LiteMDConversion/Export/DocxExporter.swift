@@ -25,11 +25,9 @@ public struct DocxExporter: Sendable {
     public init() {}
 
     public func export(_ markdown: String, options: ExportOptions) throws(ConversionError) -> Data {
-        let body = FrontMatter.split(markdown).body
-        let document = Markdown.Document(parsing: body, options: [.disableSmartOpts])
-
-        var builder = DocxBuilder(options: options)
-        builder.visit(document)
+        let parsed = ExtendedMarkdownDocument(parsing: markdown)
+        var builder = DocxBuilder(options: options, parsed: parsed)
+        builder.visit(parsed.document)
 
         var archive = ZipWriter()
         archive.add("[Content_Types].xml", string: builder.contentTypes())
@@ -64,12 +62,14 @@ private struct DocxBuilder: MarkupVisitor {
     }
 
     let options: ExportOptions
+    let parsed: ExtendedMarkdownDocument
     private var body = ""
     private var runs = ""
     private var style = RunStyle()
     private var relationships: [(id: String, type: String, target: String, external: Bool)] = []
     private(set) var media: [Medium] = []
-    private var orderedLists: [(numID: Int, start: Int)] = []
+    /// 每个有序列表一个编号实例；嵌套列表的起始编号要写在它实际使用的层级上。
+    private var orderedLists: [(numID: Int, start: Int, level: Int)] = []
     private var listStack: [Int] = []
     private var pendingNumbering: (numID: Int, level: Int)?
     private var pendingPrefix = ""
@@ -77,8 +77,12 @@ private struct DocxBuilder: MarkupVisitor {
     private var drawingID = 0
     private var inTableHeader = false
 
-    init(options: ExportOptions) {
+    /// Word 的编号定义只有 0–8 九级。
+    static let maximumListLevel = 8
+
+    init(options: ExportOptions, parsed: ExtendedMarkdownDocument) {
         self.options = options
+        self.parsed = parsed
         relationships = [
             ("rIdStyles", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles", "styles.xml", false),
             ("rIdNumbering", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering", "numbering.xml", false),
@@ -130,7 +134,7 @@ private struct DocxBuilder: MarkupVisitor {
             "<w:lvl w:ilvl=\"\(level)\"><w:start w:val=\"1\"/><w:numFmt w:val=\"\(decimalFormats[level % 3])\"/><w:lvlText w:val=\"%\(level + 1).\"/><w:lvlJc w:val=\"left\"/><w:pPr><w:ind w:left=\"\(720 * (level + 1))\" w:hanging=\"360\"/></w:pPr></w:lvl>"
         }.joined()
         let instances = orderedLists.map { list in
-            "<w:num w:numId=\"\(list.numID)\"><w:abstractNumId w:val=\"2\"/><w:lvlOverride w:ilvl=\"0\"><w:startOverride w:val=\"\(list.start)\"/></w:lvlOverride></w:num>"
+            "<w:num w:numId=\"\(list.numID)\"><w:abstractNumId w:val=\"2\"/><w:lvlOverride w:ilvl=\"\(list.level)\"><w:startOverride w:val=\"\(list.start)\"/></w:lvlOverride></w:num>"
         }.joined()
         return """
         <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -218,7 +222,7 @@ private struct DocxBuilder: MarkupVisitor {
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-        var code = codeBlock.code
+        var code = parsed.source(of: codeBlock.code)
         while code.hasSuffix("\n") { code.removeLast() }
         paragraph(style: "SourceCode") { builder in
             builder.appendText(code)
@@ -231,7 +235,7 @@ private struct DocxBuilder: MarkupVisitor {
 
     mutating func visitHTMLBlock(_ html: HTMLBlock) {
         // 原始 HTML 不适合放进 Word，保留为可见文本。
-        let text = html.rawHTML.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = parsed.source(of: html.rawHTML).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         paragraph(style: nil) { builder in builder.appendText(text) }
     }
@@ -244,14 +248,14 @@ private struct DocxBuilder: MarkupVisitor {
 
     mutating func visitOrderedList(_ orderedList: OrderedList) {
         let numID = 2 + orderedLists.count
-        orderedLists.append((numID, Int(orderedList.startIndex)))
+        orderedLists.append((numID, Int(orderedList.startIndex), min(listStack.count, Self.maximumListLevel)))
         listStack.append(numID)
         defaultVisit(orderedList)
         listStack.removeLast()
     }
 
     mutating func visitListItem(_ listItem: ListItem) {
-        pendingNumbering = (listStack.last ?? 1, max(0, listStack.count - 1))
+        pendingNumbering = (listStack.last ?? 1, min(max(0, listStack.count - 1), Self.maximumListLevel))
         switch listItem.checkbox {
         case .checked: pendingPrefix = "☒ "
         case .unchecked: pendingPrefix = "☐ "
@@ -298,7 +302,20 @@ private struct DocxBuilder: MarkupVisitor {
     // MARK: Inlines
 
     mutating func visitText(_ text: Markdown.Text) {
-        appendText(text.string)
+        for segment in parsed.segments(of: text.string) {
+            switch segment {
+            case .text(let string):
+                appendText(string)
+            case .wikiLink(let link):
+                appendText(link.displayText)
+            case .math(let math):
+                // Word 的公式格式（OMML）与 TeX 不通用，保留源码，用等宽字体标出。
+                let saved = style
+                style.code = true
+                appendText(math.tex)
+                style = saved
+            }
+        }
     }
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) {
@@ -333,14 +350,14 @@ private struct DocxBuilder: MarkupVisitor {
     mutating func visitInlineCode(_ inlineCode: InlineCode) {
         let saved = style
         style.code = true
-        appendText(inlineCode.code)
+        appendText(parsed.source(of: inlineCode.code))
         style = saved
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {}
 
     mutating func visitLink(_ link: Markdown.Link) {
-        guard let destination = link.destination, !destination.isEmpty, !destination.hasPrefix("#") else {
+        guard let destination = link.destination.map(parsed.source), !destination.isEmpty, !destination.hasPrefix("#") else {
             defaultVisit(link)
             return
         }
@@ -359,8 +376,9 @@ private struct DocxBuilder: MarkupVisitor {
     }
 
     mutating func visitImage(_ image: Markdown.Image) {
-        guard let source = image.source, let (data, fileExtension) = loadImage(source) else {
-            appendText(image.plainText)
+        let loader = LocalImageLoader(documentDirectory: options.documentDirectory)
+        guard let (_, data, fileExtension) = loader.load(parsed.source(of: image.source ?? ""), allowedExtensions: Self.imageExtensions) else {
+            appendText(parsed.plainText(of: image.plainText))
             return
         }
         let size = Self.pixelSize(of: data)
@@ -376,33 +394,14 @@ private struct DocxBuilder: MarkupVisitor {
         media.append(Medium(path: path, data: data, fileExtension: fileExtension))
         let id = addRelationship(type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image", target: path, external: false)
         drawingID += 1
-        let description = XMLTree.escape(image.plainText)
+        let description = XMLTree.escape(parsed.plainText(of: image.plainText))
         let cx = Int(width)
         let cy = Int(height)
         runs += "<w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\"><wp:extent cx=\"\(cx)\" cy=\"\(cy)\"/><wp:docPr id=\"\(drawingID)\" name=\"Picture \(drawingID)\" descr=\"\(description)\"/><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\"><pic:pic><pic:nvPicPr><pic:cNvPr id=\"\(drawingID)\" name=\"image\(drawingID).\(fileExtension)\"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed=\"\(id)\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"\(cx)\" cy=\"\(cy)\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"
     }
 
-    private func loadImage(_ source: String) -> (Data, String)? {
-        let trimmed = source.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.contains("://") || trimmed.hasPrefix("file://") else { return nil }
-        let url: URL
-        if trimmed.hasPrefix("file://"), let fileURL = URL(string: trimmed) {
-            url = fileURL
-        } else {
-            let decoded = trimmed.removingPercentEncoding ?? trimmed
-            if decoded.hasPrefix("/") {
-                url = URL(fileURLWithPath: decoded)
-            } else if let directory = options.documentDirectory {
-                url = directory.appendingPathComponent(decoded)
-            } else {
-                return nil
-            }
-        }
-        let fileExtension = url.pathExtension.lowercased() == "jpeg" ? "jpg" : url.pathExtension.lowercased()
-        guard ["png", "jpg", "gif", "bmp", "tiff", "tif"].contains(fileExtension),
-              let data = try? Data(contentsOf: url) else { return nil }
-        return (data, fileExtension)
-    }
+    /// Word 能直接显示的图片格式。
+    static let imageExtensions: Set<String> = ["png", "jpg", "gif", "bmp", "tiff", "tif"]
 
     static func pixelSize(of data: Data) -> (width: Int, height: Int) {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),

@@ -1,4 +1,5 @@
 import Foundation
+import LiteMDMarkdown
 
 /// 轻量 XML 树（基于 XMLParser，iOS / macOS 通用）。元素名保留命名空间前缀，例如 `w:p`。
 public final class XElement: @unchecked Sendable {
@@ -94,28 +95,9 @@ public enum XMLTree {
         return root
     }
 
-    public static func parse(_ string: String) throws(ConversionError) -> XElement {
-        try parse(Data(string.utf8))
-    }
-
-    /// XML 转义（元素内容与属性通用）。
+    /// XML 转义（元素内容与属性通用），与 HTML 输出共用同一份规则，包括丢弃 XML 不允许的控制字符。
     public static func escape(_ value: String) -> String {
-        var result = ""
-        result.reserveCapacity(value.utf8.count)
-        for scalar in value.unicodeScalars {
-            switch scalar {
-            case "&": result += "&amp;"
-            case "<": result += "&lt;"
-            case ">": result += "&gt;"
-            case "\"": result += "&quot;"
-            case "'": result += "&apos;"
-            default:
-                // XML 1.0 不允许的控制字符直接丢弃。
-                if scalar.value < 0x20, scalar != "\n", scalar != "\r", scalar != "\t" { continue }
-                result.unicodeScalars.append(scalar)
-            }
-        }
-        return result
+        HTMLEscaping.attribute(value)
     }
 }
 

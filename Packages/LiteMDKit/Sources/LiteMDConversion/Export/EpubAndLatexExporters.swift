@@ -6,14 +6,26 @@ import Markdown
 public struct EpubExporter: Sendable {
     public init() {}
 
-    public func export(_ markdown: String, options: ExportOptions, stylesheet: String) throws(ConversionError) -> Data {
-        // 正文与目录出自同一次渲染，目录锚点才能与正文 id 对上。
-        let fragment = MarkdownParser().xhtmlFragment(from: markdown)
-        var body = fragment.html
-        let headings = fragment.headings
+    static let mediaTypes = ["png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp"]
 
+    public func export(_ markdown: String, options: ExportOptions, stylesheet: String) throws(ConversionError) -> Data {
+        // 本地图片在渲染时就换成包内路径，只改真正的图片地址，代码块里的 `src="…"` 原样保留。
+        let loader = LocalImageLoader(documentDirectory: options.documentDirectory)
         var images: [(path: String, data: Data, mediaType: String)] = []
-        body = Self.rewriteImages(in: body, options: options, images: &images)
+        var packaged: [URL: String] = [:]
+        // 正文与目录出自同一次渲染，目录锚点才能与正文 id 对上。
+        let fragment = MarkdownParser().xhtmlFragment(from: markdown) { source in
+            guard let image = loader.load(source, allowedExtensions: Set(Self.mediaTypes.keys)),
+                  let mediaType = Self.mediaTypes[image.fileExtension] else { return nil }
+            let key = image.url.standardizedFileURL
+            if let path = packaged[key] { return path }
+            let path = "images/image\(images.count + 1).\(image.fileExtension)"
+            images.append((path, image.data, mediaType))
+            packaged[key] = path
+            return path
+        }
+        let body = fragment.html
+        let headings = fragment.headings
 
         let identifier = "urn:uuid:\(UUID().uuidString)"
         let modified = ISO8601DateFormatter().string(from: Date())
@@ -83,38 +95,6 @@ public struct EpubExporter: Sendable {
         }
         return archive.finish()
     }
-
-    private static func rewriteImages(in html: String, options: ExportOptions, images: inout [(path: String, data: Data, mediaType: String)]) -> String {
-        var result = ""
-        var remainder = Substring(html)
-        while let range = remainder.range(of: "src=\"") {
-            result += remainder[..<range.upperBound]
-            remainder = remainder[range.upperBound...]
-            guard let end = remainder.firstIndex(of: "\"") else { break }
-            let source = String(remainder[..<end])
-            remainder = remainder[end...]
-
-            let decoded = (source.removingPercentEncoding ?? source).replacingOccurrences(of: "&amp;", with: "&")
-            let fileURL: URL? = if decoded.contains("://") {
-                nil
-            } else if decoded.hasPrefix("/") {
-                URL(fileURLWithPath: decoded)
-            } else {
-                options.documentDirectory?.appendingPathComponent(decoded)
-            }
-            let fileExtension = (fileURL?.pathExtension.lowercased()) ?? ""
-            let mediaTypes = ["png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "svg": "image/svg+xml", "webp": "image/webp"]
-            if let fileURL, let mediaType = mediaTypes[fileExtension], let data = try? Data(contentsOf: fileURL) {
-                let path = "images/image\(images.count + 1).\(fileExtension)"
-                images.append((path, data, mediaType))
-                result += path
-            } else {
-                result += source
-            }
-        }
-        result += remainder
-        return result
-    }
 }
 
 /// Markdown → LaTeX。包含中文时自动使用 ctex（需 XeLaTeX 编译）。
@@ -122,15 +102,17 @@ public struct LatexExporter: Sendable {
     public init() {}
 
     public func export(_ markdown: String, options: ExportOptions) -> String {
-        let body = FrontMatter.split(markdown).body
-        let document = Markdown.Document(parsing: body, options: [.disableSmartOpts])
-        var builder = LatexBuilder(options: options)
-        builder.visit(document)
+        let parsed = ExtendedMarkdownDocument(parsing: markdown)
+        var builder = LatexBuilder(parsed: parsed)
+        builder.visit(parsed.document)
 
         let needsCJK = markdown.unicodeScalars.contains { (0x3040...0x9FFF).contains($0.value) || (0xAC00...0xD7AF).contains($0.value) }
         var preamble = [
             "% !TEX program = \(needsCJK ? "xelatex" : "pdflatex")",
             "\\documentclass[11pt]{\(needsCJK ? "ctexart" : "article")}",
+            // 公式环境与任务列表的 \square、\boxtimes。
+            "\\usepackage{amsmath}",
+            "\\usepackage{amssymb}",
             "\\usepackage{graphicx}",
             "\\usepackage{hyperref}",
             "\\usepackage{listings}",
@@ -138,7 +120,8 @@ public struct LatexExporter: Sendable {
             "\\usepackage{booktabs}",
         ]
         if !needsCJK {
-            preamble.insert("\\usepackage[utf8]{inputenc}", at: 2)
+            // pdfLaTeX 默认的 OT1 编码里没有 < > |，会印成 ¡ ¿ —。
+            preamble.insert(contentsOf: ["\\usepackage[T1]{fontenc}", "\\usepackage[utf8]{inputenc}", "\\usepackage{lmodern}"], at: 2)
         }
         preamble.append("\\lstset{basicstyle=\\ttfamily\\small, breaklines=true, frame=single}")
         preamble.append("\\title{\(LatexBuilder.escape(options.title))}")
@@ -151,11 +134,13 @@ public struct LatexExporter: Sendable {
 private struct LatexBuilder: MarkupVisitor {
     typealias Result = Void
 
-    let options: ExportOptions
+    let parsed: ExtendedMarkdownDocument
     var output = ""
+    /// 嵌套的 enumerate 层数，每层有自己的计数器。
+    private var enumerateDepth = 0
 
-    init(options: ExportOptions) {
-        self.options = options
+    init(parsed: ExtendedMarkdownDocument) {
+        self.parsed = parsed
     }
 
     static func escape(_ text: String) -> String {
@@ -203,7 +188,7 @@ private struct LatexBuilder: MarkupVisitor {
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-        output += "\\begin{lstlisting}\n\(codeBlock.code)\\end{lstlisting}\n\n"
+        output += "\\begin{lstlisting}\n\(parsed.source(of: codeBlock.code))\\end{lstlisting}\n\n"
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
@@ -220,10 +205,14 @@ private struct LatexBuilder: MarkupVisitor {
 
     mutating func visitOrderedList(_ orderedList: OrderedList) {
         output += "\\begin{enumerate}\n"
-        if orderedList.startIndex != 1 {
-            output += "\\setcounter{enumi}{\(orderedList.startIndex - 1)}\n"
+        enumerateDepth += 1
+        // 起始编号可以是 0：先转成有符号数再减一。LaTeX 的 enumerate 最多四层。
+        let counters = ["enumi", "enumii", "enumiii", "enumiv"]
+        if orderedList.startIndex != 1, enumerateDepth <= counters.count {
+            output += "\\setcounter{\(counters[enumerateDepth - 1])}{\(Int(orderedList.startIndex) - 1)}\n"
         }
         defaultVisit(orderedList)
+        enumerateDepth -= 1
         output += "\\end{enumerate}\n\n"
     }
 
@@ -263,7 +252,13 @@ private struct LatexBuilder: MarkupVisitor {
     }
 
     mutating func visitText(_ text: Markdown.Text) {
-        output += Self.escape(text.string)
+        for segment in parsed.segments(of: text.string) {
+            switch segment {
+            case .text(let string): output += Self.escape(string)
+            case .wikiLink(let link): output += Self.escape(link.displayText)
+            case .math(let math): output += math.isDisplay ? "\\[\(math.tex)\\]" : "$\(math.tex)$"
+            }
+        }
     }
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) {
@@ -293,13 +288,13 @@ private struct LatexBuilder: MarkupVisitor {
     }
 
     mutating func visitInlineCode(_ inlineCode: InlineCode) {
-        output += "\\texttt{\(Self.escape(inlineCode.code))}"
+        output += "\\texttt{\(Self.escape(parsed.source(of: inlineCode.code)))}"
     }
 
     mutating func visitInlineHTML(_ inlineHTML: InlineHTML) {}
 
     mutating func visitLink(_ link: Markdown.Link) {
-        guard let destination = link.destination, !destination.isEmpty else {
+        guard let destination = link.destination.map(parsed.source), !destination.isEmpty else {
             defaultVisit(link)
             return
         }
@@ -309,10 +304,26 @@ private struct LatexBuilder: MarkupVisitor {
     }
 
     mutating func visitImage(_ image: Markdown.Image) {
-        guard let source = image.source, !source.contains("://") else {
-            output += Self.escape(image.plainText)
+        guard let path = Self.graphicsPath(parsed.source(of: image.source ?? "")) else {
+            output += Self.escape(parsed.plainText(of: image.plainText))
             return
         }
-        output += "\\begin{center}\\includegraphics[width=0.8\\linewidth]{\(source)}\\end{center}\n"
+        output += "\\begin{center}\\includegraphics[width=0.8\\linewidth]{\(path)}\\end{center}\n"
+    }
+
+    /// `\includegraphics` 的文件名不能用 `\%` 之类的转义，`%` 会把后面整行变成注释。
+    /// 路径先做百分号解码（`my%20photo.png`），仍含 TeX 特殊字符的就不引用图片、只输出替代文字。
+    static func graphicsPath(_ source: String) -> String? {
+        let trimmed = source.trimmingCharacters(in: .whitespaces)
+        let path: String
+        if trimmed.lowercased().hasPrefix("file:") {
+            guard let url = URL(string: trimmed), url.isFileURL else { return nil }
+            path = url.path
+        } else {
+            guard !trimmed.contains("://"), !trimmed.lowercased().hasPrefix("data:") else { return nil }
+            path = trimmed.removingPercentEncoding ?? trimmed
+        }
+        guard !path.isEmpty, !path.contains(where: { "%#{}\\$&^~".contains($0) }) else { return nil }
+        return path
     }
 }
