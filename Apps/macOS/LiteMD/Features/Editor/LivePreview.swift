@@ -80,7 +80,13 @@ final class LiveLayoutFragment: NSTextLayoutFragment {
         if let block = decoration.tableBlock {
             return CGRect(origin: CGPoint(x: contentRect.minX, y: 0), size: block.size)
         }
-        return CGRect(x: contentRect.minX, y: 0, width: decoration.columnEdges.last ?? 0, height: layoutFragmentFrame.height)
+        return CGRect(x: contentRect.minX, y: 0, width: decoration.columnEdges.last ?? 0, height: layoutFragmentFrame.height - extraLineHeight)
+    }
+
+    /// 文档以换行结尾时，末尾的空行（光标所在的那一行）也算在最后一段的片段里；表格行不能把它画进去。
+    private var extraLineHeight: CGFloat {
+        guard textLineFragments.count > 1, let last = textLineFragments.last, last.characterRange.length == 0 else { return 0 }
+        return last.typographicBounds.height
     }
 
     override var renderingSurfaceBounds: CGRect {
