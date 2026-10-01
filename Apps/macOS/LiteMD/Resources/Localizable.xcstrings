@@ -513,6 +513,23 @@
         }
       }
     },
+    "A different “%@” is already on this Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A different “%@” is already on this Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 上已经有另一份“%@”。"
+          }
+        }
+      }
+    },
     "A document with this name is open in another tab. Close it before saving over it.": {
       "extractionState": "manual",
       "localizations": {
@@ -1057,6 +1074,40 @@
         }
       }
     },
+    "Browse Documents in S3…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse Documents in S3…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览 S3 中的文档…"
+          }
+        }
+      }
+    },
+    "Browse S3 Documents…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse S3 Documents…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览 S3 文档…"
+          }
+        }
+      }
+    },
     "Bucket": {
       "extractionState": "manual",
       "localizations": {
@@ -1121,6 +1172,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "取消"
+          }
+        }
+      }
+    },
+    "Change the S3 settings back to that server to upload it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change the S3 settings back to that server to upload it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把 S3 设置改回那台服务器后才能上传。"
+          }
+        }
+      }
+    },
+    "Changed on Both Sides": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changed on Both Sides"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "两边都有修改"
           }
         }
       }
@@ -1788,6 +1873,23 @@
         }
       }
     },
+    "Could Not Load Documents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could Not Load Documents"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法载入文档"
+          }
+        }
+      }
+    },
     "Could not check for updates.": {
       "extractionState": "manual",
       "localizations": {
@@ -1856,6 +1958,23 @@
         }
       }
     },
+    "Could not download “%@”.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not download “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载“%@”。"
+          }
+        }
+      }
+    },
     "Could not export %@.": {
       "extractionState": "manual",
       "localizations": {
@@ -1886,6 +2005,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法打印“%@”。"
+          }
+        }
+      }
+    },
+    "Could not upload “%@”.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not upload “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法上传“%@”。"
           }
         }
       }
@@ -2145,6 +2281,74 @@
         }
       }
     },
+    "Download S3 Version as a Copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download S3 Version as a Copy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把 S3 版本下载为副本"
+          }
+        }
+      }
+    },
+    "Download a document to edit it on this Mac. When you are done, upload it to replace the S3 copy, or keep it local.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download a document to edit it on this Mac. When you are done, upload it to replace the S3 copy, or keep it local."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载文档后在这台 Mac 上编辑。改完可以上传覆盖 S3 上的版本，也可以只留在本地。"
+          }
+        }
+      }
+    },
+    "Download and Open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download and Open"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载并打开"
+          }
+        }
+      }
+    },
+    "Downloaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloaded"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已下载"
+          }
+        }
+      }
+    },
     "Downloading %lld of %lld…": {
       "extractionState": "manual",
       "localizations": {
@@ -2366,6 +2570,23 @@
         }
       }
     },
+    "Enter your Amazon S3 or Cloudflare R2 bucket and keys in Backup settings. Browsing uses the same account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter your Amazon S3 or Cloudflare R2 bucket and keys in Backup settings. Browsing uses the same account."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“备份”设置中填写 Amazon S3 或 Cloudflare R2 的存储桶和密钥，浏览文档使用同一个账号。"
+          }
+        }
+      }
+    },
     "Every Markdown file in “%@” is converted, keeping the folder structure.": {
       "extractionState": "manual",
       "localizations": {
@@ -2549,6 +2770,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "请先填写存储桶、区域和 Access Key ID。"
+          }
+        }
+      }
+    },
+    "Filter by name or folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter by name or folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按名称或文件夹筛选"
           }
         }
       }
@@ -3522,6 +3760,23 @@
         }
       }
     },
+    "It may have been deleted or moved. Upload it again?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It may have been deleted or moved. Upload it again?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它可能已被删除或移动。要重新上传吗？"
+          }
+        }
+      }
+    },
     "Italic": {
       "extractionState": "manual",
       "localizations": {
@@ -3539,6 +3794,23 @@
         }
       }
     },
+    "Its path in the bucket contains “..” or empty folder names.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its path in the bucket contains “..” or empty folder names."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它在存储桶中的路径含有“..”或空的文件夹名。"
+          }
+        }
+      }
+    },
     "Journal": {
       "extractionState": "manual",
       "localizations": {
@@ -3552,6 +3824,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "日记"
+          }
+        }
+      }
+    },
+    "Keep Local Only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Local Only"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只保留在本地"
           }
         }
       }
@@ -3671,6 +3960,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "拿铁"
+          }
+        }
+      }
+    },
+    "Leave empty to use the backup bucket.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave empty to use the backup bucket."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "留空则使用备份所用的存储桶。"
           }
         }
       }
@@ -4441,6 +4747,23 @@
         }
       }
     },
+    "No Markdown Documents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Markdown Documents"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有 Markdown 文档"
+          }
+        }
+      }
+    },
     "No Matching Commands": {
       "extractionState": "manual",
       "localizations": {
@@ -4573,6 +4896,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未保存"
+          }
+        }
+      }
+    },
+    "Not Uploaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Uploaded"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未上传"
           }
         }
       }
@@ -4713,6 +5053,23 @@
         }
       }
     },
+    "Open Backup Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Backup Settings…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开备份设置…"
+          }
+        }
+      }
+    },
     "Open Documents": {
       "extractionState": "manual",
       "localizations": {
@@ -4811,6 +5168,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "打开链接"
+          }
+        }
+      }
+    },
+    "Open Local Version": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Local Version"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开本地版本"
           }
         }
       }
@@ -4947,6 +5321,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "打开 iCloud 云盘中的文件夹…"
+          }
+        }
+      }
+    },
+    "Open the Local File": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the Local File"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开本地文件"
           }
         }
       }
@@ -6107,6 +6498,23 @@
         }
       }
     },
+    "S3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3"
+          }
+        }
+      }
+    },
     "S3 Backup": {
       "extractionState": "manual",
       "localizations": {
@@ -6124,6 +6532,40 @@
         }
       }
     },
+    "S3 Documents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3 Documents"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3 文档"
+          }
+        }
+      }
+    },
+    "S3 Is Not Set Up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3 Is Not Set Up"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未设置 S3"
+          }
+        }
+      }
+    },
     "S3 backup uploads the files in the folder that is open in LiteMD.": {
       "extractionState": "manual",
       "localizations": {
@@ -6137,6 +6579,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "S3 备份会上传 LiteMD 中当前打开的文件夹。"
+          }
+        }
+      }
+    },
+    "S3 is not set up.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3 is not set up."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未设置 S3。"
           }
         }
       }
@@ -6566,6 +7025,23 @@
         }
       }
     },
+    "Set up S3 in Settings first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up S3 in Settings first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在设置中设置 S3。"
+          }
+        }
+      }
+    },
     "Settings": {
       "extractionState": "manual",
       "localizations": {
@@ -6596,6 +7072,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "设置…"
+          }
+        }
+      }
+    },
+    "Show Download Folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Download Folder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示下载文件夹"
           }
         }
       }
@@ -7331,6 +7824,23 @@
         }
       }
     },
+    "The file in the download folder does not match the one in S3.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file in the download folder does not match the one in S3."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载文件夹里的这份和 S3 上的内容不同。"
+          }
+        }
+      }
+    },
     "The file is not UTF-8 or UTF-16 encoded. LiteMD did not open it to avoid damaging its contents.": {
       "extractionState": "manual",
       "localizations": {
@@ -7735,6 +8245,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "主题"
+          }
+        }
+      }
+    },
+    "There are no .md files in “%@”.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are no .md files in “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”中没有 .md 文件。"
           }
         }
       }
@@ -8368,6 +8895,23 @@
         }
       }
     },
+    "Updated in S3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated in S3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3 上有更新"
+          }
+        }
+      }
+    },
     "Updates": {
       "extractionState": "manual",
       "localizations": {
@@ -8419,6 +8963,57 @@
         }
       }
     },
+    "Upload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传"
+          }
+        }
+      }
+    },
+    "Upload Anyway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload Anyway"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍然上传"
+          }
+        }
+      }
+    },
+    "Upload to S3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload to S3"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传到 S3"
+          }
+        }
+      }
+    },
     "Uploading %lld of %lld…": {
       "extractionState": "manual",
       "localizations": {
@@ -8432,6 +9027,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在上传 %1$lld / %2$lld…"
+          }
+        }
+      }
+    },
+    "Uploading replaces those changes with your version.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading replaces those changes with your version."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传会用你的版本覆盖这些修改。"
+          }
+        }
+      }
+    },
+    "Uploading…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在上传…"
           }
         }
       }
@@ -8742,6 +9371,23 @@
         }
       }
     },
+    "You have changes that are not uploaded, and the S3 version was updated after you downloaded it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You have changes that are not uploaded, and the S3 version was updated after you downloaded it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地有尚未上传的修改，而 S3 上的版本在你下载之后也被更新过。"
+          }
+        }
+      }
+    },
     "You have version %@. LiteMD will save your documents, install the update and reopen.": {
       "extractionState": "manual",
       "localizations": {
@@ -8929,6 +9575,40 @@
         }
       }
     },
+    "“%@” came from a different S3 server.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” came from a different S3 server."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”来自另一台 S3 服务器。"
+          }
+        }
+      }
+    },
+    "“%@” cannot be downloaded.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” cannot be downloaded."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载“%@”。"
+          }
+        }
+      }
+    },
     "“%@” does not contain any Markdown files.": {
       "extractionState": "manual",
       "localizations": {
@@ -8997,6 +9677,23 @@
         }
       }
     },
+    "“%@” is no longer in S3.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is no longer in S3."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "S3 上已经没有“%@”了。"
+          }
+        }
+      }
+    },
     "“%@” isn’t a font format LiteMD can read. Use .ttf, .otf, .ttc, .woff or .woff2.": {
       "extractionState": "manual",
       "localizations": {
@@ -9010,6 +9707,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "LiteMD 读不了“%@”格式，请使用 .ttf、.otf、.ttc、.woff 或 .woff2。"
+          }
+        }
+      }
+    },
+    "“%@” was changed both here and in S3.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” was changed both here and in S3."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”在本地和 S3 上都被修改过。"
+          }
+        }
+      }
+    },
+    "“%@” was changed in S3 after you downloaded it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” was changed in S3 after you downloaded it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”在你下载之后被人在 S3 上修改过。"
           }
         }
       }

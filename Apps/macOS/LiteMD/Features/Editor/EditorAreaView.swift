@@ -285,6 +285,9 @@ struct StatusBarView: View {
                 .help("A new version of LiteMD is available")
             }
 
+            if let link = model.remoteDocuments.link(for: document.fileReference?.url) {
+                RemoteDocumentStatusMenu(document: document, link: link)
+            }
             SaveStateLabel(document: document)
             Text(document.fileReference?.encoding.displayName ?? "UTF-8")
             Text(document.fileReference?.lineEnding.displayName ?? "LF")

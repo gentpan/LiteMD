@@ -79,6 +79,7 @@ final class AppSettings {
     var backupPrefix: String { didSet { storeQuietly(backupPrefix, .backupPrefix) } }
     var backupPathStyle: Bool { didSet { storeQuietly(backupPathStyle, .backupPathStyle) } }
     var backupAccessKeyID: String { didSet { storeQuietly(backupAccessKeyID, .backupAccessKeyID) } }
+    var backupBrowserBucket: String { didSet { storeQuietly(backupBrowserBucket, .backupBrowserBucket) } }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -138,6 +139,7 @@ final class AppSettings {
         backupPrefix = value(.backupPrefix, "LiteMD")
         backupPathStyle = value(.backupPathStyle, true)
         backupAccessKeyID = value(.backupAccessKeyID, "")
+        backupBrowserBucket = value(.backupBrowserBucket, "")
     }
 
     private func store(_ value: Any, _ key: SettingsKey) {
@@ -155,6 +157,19 @@ final class AppSettings {
             region: backupRegion,
             bucket: backupBucket,
             prefix: backupPrefix,
+            usesPathStyle: backupPathStyle,
+            accessKeyID: backupAccessKeyID
+        )
+    }
+
+    /// S3 文档浏览器：与备份共用地址和密钥，桶可以单独指定。
+    func browserConfiguration(bucket: String? = nil) -> S3Configuration {
+        let browserBucket = backupBrowserBucket.trimmingCharacters(in: .whitespaces)
+        return backupProvider.configuration(
+            endpoint: backupEndpoint,
+            region: backupRegion,
+            bucket: bucket ?? (browserBucket.isEmpty ? backupBucket : browserBucket),
+            prefix: "",
             usesPathStyle: backupPathStyle,
             accessKeyID: backupAccessKeyID
         )

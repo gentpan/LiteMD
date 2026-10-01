@@ -116,7 +116,7 @@ public struct RestoreEngine: Sendable {
     }
 
     /// 校验相对路径：只允许普通路径段。
-    static func safeRelativePath(_ path: String) -> [String]? {
+    public static func safeRelativePath(_ path: String) -> [String]? {
         guard !path.isEmpty, !path.hasPrefix("/") else { return nil }
         let segments = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard segments.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.contains("\0") }) else { return nil }

@@ -85,6 +85,10 @@ struct LiteMDCommands: Commands {
                 .disabled(!hasWorkspace)
             Button("Restore from Backup…") { model.isRestorePresented = true }
                 .disabled(model.isPresentingSheet)
+            Button("Browse S3 Documents…") { model.isRemoteDocumentsPresented = true }
+                .disabled(model.isPresentingSheet)
+            Button("Upload to S3") { model.uploadActiveDocumentToS3() }
+                .disabled(!model.activeDocumentIsFromS3)
             Button("Close Folder") { model.closeWorkspace() }
                 .disabled(!hasWorkspace)
         }

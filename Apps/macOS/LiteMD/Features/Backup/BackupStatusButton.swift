@@ -35,6 +35,9 @@ struct BackupStatusButton: View {
             }, openRestore: {
                 isPresented = false
                 model.isRestorePresented = true
+            }, openDocuments: {
+                isPresented = false
+                model.isRemoteDocumentsPresented = true
             })
             .environment(model)
         }
@@ -69,6 +72,7 @@ private struct BackupPopover: View {
     @Environment(AppModel.self) private var model
     let openSettings: () -> Void
     let openRestore: () -> Void
+    let openDocuments: () -> Void
 
     var body: some View {
         let backup = model.backup
@@ -80,6 +84,9 @@ private struct BackupPopover: View {
 
             if backup.isConfigured {
                 BackupStatusDetails()
+                Button("Browse Documents in S3…", action: openDocuments)
+                    .buttonStyle(.link)
+                    .font(.system(size: TextSize.xs))
             } else {
                 Text("Back up this folder to Amazon S3, Cloudflare R2, MinIO or another S3-compatible bucket.")
                     .font(.system(size: TextSize.xs))

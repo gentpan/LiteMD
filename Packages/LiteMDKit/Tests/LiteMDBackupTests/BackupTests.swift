@@ -181,7 +181,8 @@ final class MockS3: HTTPTransport, @unchecked Sendable {
                     if !folders.contains(folder) { folders.append(folder) }
                     continue
                 }
-                contents += "<Contents><Key>\(key)</Key><ETag>&quot;\(Insecure.MD5.hash(data: data).hexString)&quot;</ETag></Contents>"
+                contents += "<Contents><Key>\(key)</Key><ETag>&quot;\(Insecure.MD5.hash(data: data).hexString)&quot;</ETag>"
+                    + "<Size>\(data.count)</Size><LastModified>2026-09-17T08:30:00.000Z</LastModified></Contents>"
             }
             let prefixes = folders.map { "<CommonPrefixes><Prefix>\($0)</Prefix></CommonPrefixes>" }.joined()
             let truncated = truncatesListingWithoutToken ? "true" : "false"
@@ -428,5 +429,69 @@ struct RestoreEngineTests {
         #expect(RestoreEngine.displayName(forFolder: "My-Notes") == "My-Notes")
         #expect(RestoreEngine.safeRelativePath("a/./b") == nil)
         #expect(RestoreEngine.safeRelativePath("a/b.md") == ["a", "b.md"])
+    }
+}
+
+struct RemoteDocumentStoreTests {
+    let configuration = S3Configuration(endpoint: "http://127.0.0.1:9000", region: "us-east-1", bucket: "bucket", prefix: "", usesPathStyle: true, accessKeyID: "AK")
+
+    @Test func listsMarkdownAcrossTheWholeBucketWithSizeAndDate() async throws {
+        let s3 = MockS3()
+        s3.seed("notes/b.md", Data("bb".utf8))
+        s3.seed("a.markdown", Data("a".utf8))
+        s3.seed("notes/image.png", Data("png".utf8))
+        s3.seed("notes/", Data())
+        let store = RemoteDocumentStore(client: S3Client(configuration: configuration, secretAccessKey: "SK", transport: s3))
+
+        let documents = try await store.documents()
+        #expect(documents.map(\.key) == ["a.markdown", "notes/b.md"])
+        #expect(documents[1].name == "b.md")
+        #expect(documents[1].size == 2)
+        #expect(documents[1].eTag == Insecure.MD5.hash(data: Data("bb".utf8)).hexString)
+        #expect(documents[1].lastModified == Date(timeIntervalSince1970: 1_789_633_800))
+    }
+
+    @Test func downloadsUploadsAndReportsTheCurrentETag() async throws {
+        let s3 = MockS3()
+        s3.seed("notes/a.md", Data("old".utf8))
+        let store = RemoteDocumentStore(client: S3Client(configuration: configuration, secretAccessKey: "SK", transport: s3))
+
+        let downloaded = try await store.download("notes/a.md")
+        #expect(downloaded.data == Data("old".utf8))
+        #expect(downloaded.eTag == RemoteDocumentStore.md5(Data("old".utf8)))
+        #expect(try await store.currentETag(of: "notes/a.md") == downloaded.eTag)
+        #expect(try await store.currentETag(of: "notes/missing.md") == nil)
+
+        let eTag = try await store.upload(Data("new".utf8), to: "notes/a.md")
+        #expect(eTag == RemoteDocumentStore.md5(Data("new".utf8)))
+        #expect(s3.object("notes/a.md") == Data("new".utf8))
+    }
+
+    @Test func rejectsCorruptedDownloads() async {
+        let s3 = MockS3()
+        s3.seed("a.md", Data("text".utf8))
+        s3.corruptsDownloads = true
+        let store = RemoteDocumentStore(client: S3Client(configuration: configuration, secretAccessKey: "SK", transport: s3))
+        await #expect(throws: S3Error.invalidResponse) { try await store.download("a.md") }
+    }
+
+    @Test func mapsKeysInsideTheDownloadFolderOnly() {
+        let root = URL(fileURLWithPath: "/tmp/LiteMD/S3/bucket")
+        #expect(RemoteDocumentStore.localURL(for: "notes/a.md", in: root)?.path == "/tmp/LiteMD/S3/bucket/notes/a.md")
+        #expect(RemoteDocumentStore.localURL(for: "../a.md", in: root) == nil)
+        #expect(RemoteDocumentStore.localURL(for: "/etc/a.md", in: root) == nil)
+        #expect(RemoteDocumentStore.localURL(for: "notes//a.md", in: root) == nil)
+    }
+
+    @Test func comparesBothSidesAgainstTheLastSync() {
+        let synced = Data("synced".utf8)
+        let link = RemoteDocumentLink(endpoint: "e", bucket: "b", key: "a.md", remoteETag: "ETAG1", localMD5: RemoteDocumentStore.md5(synced))
+        #expect(RemoteDocumentStore.state(local: nil, link: link, remoteETag: "etag1") == .notDownloaded)
+        #expect(RemoteDocumentStore.state(local: synced, link: nil, remoteETag: "etag1") == .notDownloaded)
+        #expect(RemoteDocumentStore.state(local: synced, link: link, remoteETag: "etag1") == .synced)
+        #expect(RemoteDocumentStore.state(local: synced, link: link, remoteETag: nil) == .synced)
+        #expect(RemoteDocumentStore.state(local: Data("edited".utf8), link: link, remoteETag: "etag1") == .localChanges)
+        #expect(RemoteDocumentStore.state(local: synced, link: link, remoteETag: "etag2") == .remoteChanges)
+        #expect(RemoteDocumentStore.state(local: Data("edited".utf8), link: link, remoteETag: "etag2") == .bothChanged)
     }
 }

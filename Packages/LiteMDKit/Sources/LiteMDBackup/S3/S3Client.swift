@@ -69,10 +69,14 @@ public struct S3Object: Equatable, Sendable {
     public var key: String
     /// 去掉引号的 ETag。单块上传且未使用 KMS 加密时等于内容的 MD5。
     public var eTag: String
+    public var size: Int64
+    public var lastModified: Date?
 
-    public init(key: String, eTag: String) {
+    public init(key: String, eTag: String, size: Int64 = 0, lastModified: Date? = nil) {
         self.key = key
         self.eTag = eTag
+        self.size = size
+        self.lastModified = lastModified
     }
 }
 
@@ -119,7 +123,7 @@ public struct URLSessionTransport: HTTPTransport {
     }
 }
 
-/// 最小 S3 客户端：列举、上传、删除。所有请求使用 SigV4 签名。
+/// 最小 S3 客户端：列举、下载、上传、删除。所有请求使用 SigV4 签名。
 public struct S3Client: Sendable {
     public let configuration: S3Configuration
     private let signer: SigV4Signer
@@ -158,15 +162,31 @@ public struct S3Client: Sendable {
 
     /// 下载对象。`contentMD5` 是可以用来校验内容的 MD5：只有单块上传、且没有用 SSE-KMS / SSE-C 加密时，
     /// ETag 才等于内容的 MD5，其余情况为 nil。
-    public func getObject(key: String) async throws(S3Error) -> (data: Data, contentMD5: String?) {
+    public func getObject(key: String) async throws(S3Error) -> (data: Data, eTag: String, contentMD5: String?) {
         var request = URLRequest(url: try configuration.url(key: key))
         request.httpMethod = "GET"
         let (data, response) = try await perform(request, payloadHash: SigV4Signer.emptyPayloadHash)
-        let eTag = (response.value(forHTTPHeaderField: "ETag") ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "\" ")).lowercased()
+        let eTag = Self.eTag(of: response)
         let encryption = response.value(forHTTPHeaderField: "x-amz-server-side-encryption")?.lowercased() ?? ""
         let customerKey = response.value(forHTTPHeaderField: "x-amz-server-side-encryption-customer-algorithm") != nil
         let isMD5 = eTag.count == 32 && eTag.allSatisfy(\.isHexDigit) && !encryption.hasPrefix("aws:kms") && !customerKey
-        return (data, isMD5 ? eTag : nil)
+        return (data, eTag, isMD5 ? eTag : nil)
+    }
+
+    /// 对象当前的 ETag（小写、去掉引号）；对象不存在时返回 nil。
+    public func headObject(key: String) async throws(S3Error) -> String? {
+        var request = URLRequest(url: try configuration.url(key: key))
+        request.httpMethod = "HEAD"
+        do throws(S3Error) {
+            let (_, response) = try await perform(request, payloadHash: SigV4Signer.emptyPayloadHash)
+            return Self.eTag(of: response)
+        } catch .http(404, _, _) {
+            return nil
+        }
+    }
+
+    private static func eTag(of response: HTTPURLResponse) -> String {
+        (response.value(forHTTPHeaderField: "ETag") ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "\" ")).lowercased()
     }
 
     /// 列出前缀下一层的“目录”（CommonPrefixes），例如各个 Workspace 的备份目录。
@@ -245,6 +265,8 @@ private final class ListBucketParser: NSObject, XMLParserDelegate {
     private var text = ""
     private var key = ""
     private var eTag = ""
+    private var size: Int64 = 0
+    private var lastModified: Date?
 
     static func parse(_ data: Data) throws(S3Error) -> Page {
         let delegate = ListBucketParser()
@@ -259,6 +281,8 @@ private final class ListBucketParser: NSObject, XMLParserDelegate {
         if elementName == "Contents" {
             key = ""
             eTag = ""
+            size = 0
+            lastModified = nil
         }
         if elementName == "CommonPrefixes" { isInCommonPrefixes = true }
     }
@@ -267,13 +291,22 @@ private final class ListBucketParser: NSObject, XMLParserDelegate {
         text += string
     }
 
+    /// `2026-09-17T08:30:00.000Z`；有的兼容服务不带毫秒。
+    static func parseDate(_ text: String) -> Date? {
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
+
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
         switch elementName {
         case "Key": key = text
         case "ETag": eTag = text.trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
         case "Prefix" where isInCommonPrefixes: page.commonPrefixes.append(text)
         case "CommonPrefixes": isInCommonPrefixes = false
-        case "Contents": page.objects.append(S3Object(key: key, eTag: eTag))
+        case "Size": size = Int64(text) ?? 0
+        case "LastModified": lastModified = Self.parseDate(text)
+        case "Contents": page.objects.append(S3Object(key: key, eTag: eTag, size: size, lastModified: lastModified))
         case "IsTruncated": page.isTruncated = text == "true"
         case "NextContinuationToken": page.nextToken = text
         default: break

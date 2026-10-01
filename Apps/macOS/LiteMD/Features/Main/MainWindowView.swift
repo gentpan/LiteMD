@@ -45,6 +45,10 @@ struct MainWindowView: View {
             RestoreBackupView()
                 .environment(model)
         }
+        .sheet(isPresented: $model.isRemoteDocumentsPresented) {
+            RemoteDocumentsView()
+                .environment(model)
+        }
         .sheet(item: $model.versionHistoryDocument) { document in
             VersionHistoryView(document: document)
                 .environment(model)

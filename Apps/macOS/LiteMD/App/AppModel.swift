@@ -64,6 +64,7 @@ final class AppModel {
     let searcher: WorkspaceSearcher
     let search = SearchModel()
     let backup: BackupModel
+    let remoteDocuments: RemoteDocumentsModel
     let backlinks = BacklinksModel()
     let updates = UpdateModel()
     let folderAppearance: FolderAppearanceModel
@@ -93,6 +94,7 @@ final class AppModel {
     var isQuickOpenPresented = false
     var isCommandPalettePresented = false
     var isRestorePresented = false
+    var isRemoteDocumentsPresented = false
     var versionHistoryDocument: Document?
     var folderExportRequest: FolderExportRequest?
     /// 正在编辑图标与颜色的文件夹（侧栏中对应的行弹出面板）。
@@ -107,7 +109,7 @@ final class AppModel {
     /// 主窗口上已经有面板。同一视图同时只能弹出一个面板，第二个会被丢弃，
     /// 它的状态卡在 true，之后对应的快捷键就再也没反应。
     var isPresentingSheet: Bool {
-        isQuickOpenPresented || isCommandPalettePresented || isRestorePresented
+        isQuickOpenPresented || isCommandPalettePresented || isRestorePresented || isRemoteDocumentsPresented
             || versionHistoryDocument != nil || compareRequest != nil || folderExportRequest != nil
     }
 
@@ -141,6 +143,7 @@ final class AppModel {
         assets = AssetService(fileSystem: fileSystem)
         searcher = WorkspaceSearcher(fileSystem: fileSystem)
         backup = BackupModel(settings: settings, directory: support.appendingPathComponent("Backup", isDirectory: true))
+        remoteDocuments = RemoteDocumentsModel(settings: settings, backup: backup, documents: documents, directory: support.appendingPathComponent("S3", isDirectory: true))
         backlinkIndex = BacklinkIndex(fileSystem: fileSystem)
         connect()
     }
@@ -151,13 +154,18 @@ final class AppModel {
         documents.onDocumentsChanged = { [weak self] in self?.documentsDidChange() }
         documents.onFileOpened = { [weak self] url in self?.session.noteOpenedFile(url) }
         documents.onDocumentSaved = { [weak self] document in
-            if let url = document.fileReference?.url { self?.backup.noteLocalChange(at: url) }
+            if let url = document.fileReference?.url {
+                self?.backup.noteLocalChange(at: url)
+                self?.remoteDocuments.noteLocalChange(at: url)
+            }
         }
+        remoteDocuments.openDocument = { [weak self] url in await self?.openDocument(url) }
         backup.workspaceRoot = { [weak self] in self?.workspace.rootURL }
         backup.ignoreRules = { [weak self] in self?.workspace.rules ?? WorkspaceIgnoreRules() }
         workspace.onItemMoved = { [weak self] old, new in
             self?.documents.itemMoved(from: old, to: new)
             self?.folderAppearance.itemMoved(from: old, to: new)
+            self?.remoteDocuments.itemMoved(from: old, to: new)
         }
         workspace.onItemTrashed = { [weak self] url in
             self?.documents.itemTrashed(at: url)
@@ -240,6 +248,7 @@ final class AppModel {
         #if DEBUG
         await FolderExportDebugRun.runIfRequested(model: self)
         await PasteDebugRun.runIfRequested(model: self)
+        await RemoteDocumentsDebugRun.runIfRequested(model: self)
         #endif
         updates.checkOnLaunchIfNeeded()
         let entries = await documents.pendingRecoveryEntries()
@@ -333,6 +342,7 @@ final class AppModel {
         guard !relevant.isEmpty else { return }
         for event in relevant {
             backup.noteLocalChange(at: event.url)
+            remoteDocuments.noteLocalChange(at: event.url)
         }
         Task {
             await documents.handleFileEvents(relevant)
@@ -1074,6 +1084,16 @@ final class AppModel {
                 SystemIntegration.present(error)
             }
         }
+    }
+
+    /// 当前文档是从 S3 文档浏览器下载的。
+    var activeDocumentIsFromS3: Bool {
+        remoteDocuments.link(for: activeDocument?.fileReference?.url) != nil
+    }
+
+    func uploadActiveDocumentToS3() {
+        guard let document = activeDocument else { return }
+        Task { await remoteDocuments.upload(document) }
     }
 
     func trashActiveDocument() {

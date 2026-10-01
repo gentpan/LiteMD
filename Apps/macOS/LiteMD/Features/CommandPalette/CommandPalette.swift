@@ -131,6 +131,8 @@ extension AppModel {
         commands += [
             PaletteCommand(id: "backup.now", title: String(localized: "Back Up Folder Now"), category: tools, symbol: "icloud.and.arrow.up", shortcut: "⌃⌘B", keywords: "backup s3 upload", isEnabled: hasWorkspace) { self.backup.backUpNow() },
             PaletteCommand(id: "backup.restore", title: String(localized: "Restore from Backup…"), category: tools, symbol: "icloud.and.arrow.down", keywords: "restore backup s3 download") { self.isRestorePresented = true },
+            PaletteCommand(id: "s3.browse", title: String(localized: "Browse S3 Documents…"), category: tools, symbol: "cloud", keywords: "s3 r2 bucket browse download markdown") { self.isRemoteDocumentsPresented = true },
+            PaletteCommand(id: "s3.upload", title: String(localized: "Upload to S3"), category: tools, symbol: "icloud.and.arrow.up", keywords: "s3 r2 upload overwrite", isEnabled: activeDocumentIsFromS3) { self.uploadActiveDocumentToS3() },
             PaletteCommand(id: "updates", title: String(localized: "Check for Updates…"), category: tools, symbol: "arrow.down.circle", keywords: "update upgrade version") { Task { await self.updates.check(userInitiated: true) } },
             PaletteCommand(id: "settings", title: String(localized: "Settings…"), category: tools, symbol: "gearshape", shortcut: "⌘,", keywords: "settings preferences") { self.openSettingsTab(.general) },
             PaletteCommand(id: "settings.backup", title: String(localized: "Backup Settings…"), category: tools, symbol: "externaldrive.badge.icloud", keywords: "backup settings s3") { self.openSettingsTab(.backup) },

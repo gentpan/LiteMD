@@ -53,6 +53,8 @@ public enum SettingsKey: String, CaseIterable, Sendable {
     case backupPrefix = "backup.prefix"
     case backupPathStyle = "backup.pathStyle"
     case backupAccessKeyID = "backup.accessKeyID"
+    /// S3 文档浏览器使用的桶；为空时与备份相同。
+    case backupBrowserBucket = "backup.browserBucket"
 }
 
 public enum AppTheme: String, CaseIterable, Sendable {

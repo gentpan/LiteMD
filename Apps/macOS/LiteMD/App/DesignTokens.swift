@@ -86,6 +86,10 @@ enum Layout {
     static let themeCardHeight: CGFloat = 128
     static let formatSliderWidth: CGFloat = 320
     static let backupPopoverWidth: CGFloat = 296
+    static let remoteDocumentsWidth: CGFloat = 720
+    static let remoteDocumentsHeight: CGFloat = 560
+    static let remoteBucketFieldWidth: CGFloat = 180
+    static let remoteDateColumnWidth: CGFloat = 128
     static let historyListWidth: CGFloat = 240
     static let backlinksMaximumHeight: CGFloat = 240
     static let folderSymbolCell: CGFloat = Space.s8
