@@ -6,10 +6,12 @@
 
 [litemd.app](https://litemd.app) · [中文说明](README.zh-CN.md)
 
-[![Download](https://img.shields.io/badge/download-0.1.3-2563EB)](https://litemd.app)
+[![Download](https://img.shields.io/badge/download-0.1.4-2563EB)](https://litemd.app)
 [![Platform](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![Universal](https://img.shields.io/badge/binary-universal-111827)](https://litemd.app)
 [![License](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)
+
+<img src="docs/screenshots/live-preview.png" width="880" alt="LiteMD in Live Preview: a note with a rendered table, a task list and a quote">
 
 </div>
 
@@ -32,6 +34,10 @@ app and render offline.
 dark, and the app's own appearance follows. Separate fonts for body, headings
 and code, with sliders for size, line height, line width, paragraph spacing and
 indent.
+
+<p align="center">
+  <img src="site/assets/app-dark-en.png" width="880" alt="LiteMD with a dark theme">
+</p>
 
 **Bring your own fonts.** Import a font file (`.ttf`, `.otf`, `.ttc`, `.woff`,
 `.woff2`), or paste a family name or Google Fonts address and LiteMD fetches it.

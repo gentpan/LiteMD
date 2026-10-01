@@ -1,0 +1,4 @@
+{
+  "zh-Hans": "· 实时预览渲染表格：光标不在表格里时显示为带边框的网格，表头加粗，支持居中和右对齐，单元格里的粗体、行内代码、链接照常显示；光标移进表格时整张表切回源码，方便编辑\n· 比编辑区宽的表格按内容分配列宽，单元格内自动换行",
+  "en": "· Live Preview renders tables: outside the table you see a bordered grid with a bold header, center and right alignment, and inline formatting such as bold, code and links; move the cursor into the table to edit its source.\n· Tables wider than the editor share the width by content, and cell text wraps."
+}

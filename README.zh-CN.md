@@ -6,10 +6,12 @@
 
 [litemd.app](https://litemd.app) · [English](README.md)
 
-[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.3-2563EB)](https://litemd.app)
+[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.4-2563EB)](https://litemd.app)
 [![系统](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![架构](https://img.shields.io/badge/%E9%80%9A%E7%94%A8%E4%BA%8C%E8%BF%9B%E5%88%B6-universal-111827)](https://litemd.app)
 [![许可证](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)
+
+<img src="docs/screenshots/live-preview-zh.png" width="880" alt="LiteMD 实时预览：渲染后的表格、任务列表与引用">
 
 </div>
 
@@ -25,6 +27,10 @@ KaTeX 公式、代码高亮（highlight.js）和 Mermaid 图表随应用打包�
 
 **20 套配色。** 10 套浅色、10 套深色，浅色模式和深色模式各挑一套，应用外观跟着走。
 正文、标题、代码三种字体，字号、行高、行宽、段落间距与缩进逐项可调。
+
+<p align="center">
+  <img src="site/assets/app-dark.png" width="880" alt="LiteMD 深色主题">
+</p>
 
 **自己的字体也能用。** 导入字体文件（`.ttf`、`.otf`、`.ttc`、`.woff`、`.woff2`），
 或者填一个字体族名、Google Fonts 地址让 LiteMD 去取。导入的字体只注册到应用自己的进程，
