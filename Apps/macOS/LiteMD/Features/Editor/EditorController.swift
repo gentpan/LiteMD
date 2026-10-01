@@ -124,6 +124,9 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
     /// 最近一次着色时使用的当前行。
     private var styledActiveLineRange = NSRange(location: NSNotFound, length: 0)
     private var tokensRevision = -1
+    /// 上次排版实时预览表格时的可用宽度；宽度变化后表格可能放得下或放不下了。
+    private var tableLayoutWidth: CGFloat = -1
+    private var tableRelayoutTask: Task<Void, Never>?
     /// 上次应用设置时的主题；主题变化后需要让 TextKit 重新解析颜色。
     private var appliedTheme: ColorTheme?
     /// 右键菜单中的“共享”需要在菜单存在期间保留 picker。
@@ -702,8 +705,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
                 return
             }
             let end = min(length, location + chunkSize)
-            let range = string.paragraphRange(for: NSRange(location: location, length: end - location))
-            restyle(range)
+            let range = restyle(string.paragraphRange(for: NSRange(location: location, length: end - location)))
             location = NSMaxRange(range)
             if location < length {
                 await Task.yield()
@@ -716,13 +718,16 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
     }
 
-    private func restyle(_ range: NSRange) {
-        guard let storage = textView.textStorage, range.length > 0, NSMaxRange(range) <= storage.length else { return }
+    /// 返回实际着色的区间：实时预览中碰到表格的一部分就整张表一起重排，列宽取决于所有行。
+    @discardableResult
+    private func restyle(_ requested: NSRange) -> NSRange {
+        guard let storage = textView.textStorage, requested.length > 0, NSMaxRange(requested) <= storage.length else { return requested }
+        let string = storage.string as NSString
+        let range = isLivePreview ? expandedToTables(requested, string: string) : requested
         storage.beginEditing()
         storage.setAttributes(styler.base, range: range)
         var index = firstTokenIndex(atOrAfter: range.location)
         let end = NSMaxRange(range)
-        let string = storage.string as NSString
         while index < tokens.count {
             let token = tokens[index]
             if token.range.location >= end { break }
@@ -741,6 +746,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         }
         storage.endEditing()
         textView.typingAttributes = styler.base
+        return range
     }
 
     // MARK: Live preview
@@ -757,7 +763,44 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         let string = textView.string as NSString
         let selection = textView.selectedRange()
         guard selection.location <= string.length else { return NSRange(location: NSNotFound, length: 0) }
-        return string.lineRange(for: NSRange(location: selection.location, length: min(selection.length, string.length - selection.location)))
+        let line = string.lineRange(for: NSRange(location: selection.location, length: min(selection.length, string.length - selection.location)))
+        // 光标在表格里时整张表显示源码。
+        return isLivePreview ? expandedToTables(line, string: string) : line
+    }
+
+    /// 连续含表格标记的行构成一张表；区间首尾落在表格里时扩展到整张表。
+    private func expandedToTables(_ range: NSRange, string: NSString) -> NSRange {
+        guard string.length > 0, NSMaxRange(range) <= string.length else { return range }
+        var start = range.location
+        var end = NSMaxRange(range)
+        var first = string.lineRange(for: NSRange(location: start, length: 0))
+        if lineHasTable(first) {
+            while first.location > 0 {
+                let previous = string.lineRange(for: NSRange(location: first.location - 1, length: 0))
+                guard lineHasTable(previous) else { break }
+                first = previous
+            }
+            start = first.location
+        }
+        var last = string.lineRange(for: NSRange(location: max(range.location, end - 1), length: 0))
+        if lineHasTable(last) {
+            while NSMaxRange(last) < string.length {
+                let next = string.lineRange(for: NSRange(location: NSMaxRange(last), length: 0))
+                guard lineHasTable(next) else { break }
+                last = next
+            }
+            end = max(end, NSMaxRange(last))
+        }
+        return NSRange(location: start, length: end - start)
+    }
+
+    private func lineHasTable(_ line: NSRange) -> Bool {
+        var index = firstTokenIndex(atOrAfter: line.location)
+        while index < tokens.count, tokens[index].range.location < NSMaxRange(line) {
+            if tokens[index].kind == .table { return true }
+            index += 1
+        }
+        return false
     }
 
     private func isActive(_ range: NSRange) -> Bool {
@@ -823,6 +866,15 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
         while lineStart < end {
             let line = string.lineRange(for: NSRange(location: lineStart, length: 0))
             let kinds = tokenKinds(inLine: line)
+            if kinds.contains(.table), !isActive(line) {
+                // 无法渲染的表格保持源码样式，同样整张跳过。
+                let table = expandedToTables(line, string: string)
+                if NSMaxRange(table) <= end {
+                    renderTable(table, storage: storage, string: string)
+                    lineStart = NSMaxRange(table)
+                    continue
+                }
+            }
             if kinds.contains(.codeBlock) || kinds.contains(.codeFence) {
                 storage.addAttribute(.liveDecoration, value: LiveDecoration(kind: .codeBlock), range: line)
             } else if kinds.contains(.horizontalRule), !isActive(line) {
@@ -839,6 +891,45 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
             }
             guard NSMaxRange(line) > lineStart else { break }
             lineStart = NSMaxRange(line)
+        }
+    }
+
+    private func renderTable(_ table: NSRange, storage: NSTextStorage, string: NSString) {
+        var lines: [NSRange] = []
+        var location = table.location
+        while location < NSMaxRange(table) {
+            let line = string.lineRange(for: NSRange(location: location, length: 0))
+            guard NSMaxRange(line) > location else { break }
+            lines.append(line)
+            location = NSMaxRange(line)
+        }
+        let width = liveTableWidth
+        tableLayoutWidth = width
+        LiveTableLayout(styler: styler).apply(lines: lines, storage: storage, string: string, maximumWidth: width)
+    }
+
+    /// 表格可用的宽度：文本容器宽度减去行首行尾内边距。不换行时容器很宽，表格总能按原宽放下。
+    private var liveTableWidth: CGFloat {
+        let container = textView.textContainer
+        return (container?.size.width ?? textView.bounds.width) - (container?.lineFragmentPadding ?? 0) * 2
+    }
+
+    /// 窗口宽度变化后重排所有表格。拖动窗口时连续触发，稍后统一处理。
+    private func scheduleTableRelayout() {
+        guard isLivePreview else { return }
+        tableRelayoutTask?.cancel()
+        tableRelayoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled, let self, self.isLivePreview, self.tokensRevision == self.document.revision,
+                  !self.textView.hasMarkedText(), self.liveTableWidth != self.tableLayoutWidth else { return }
+            self.tableLayoutWidth = self.liveTableWidth
+            let string = self.textView.string as NSString
+            var restyledEnd = 0
+            for token in self.tokens where token.kind == .table && token.range.location >= restyledEnd {
+                guard NSMaxRange(token.range) <= string.length else { break }
+                let line = string.lineRange(for: NSRange(location: token.range.location, length: 0))
+                restyledEnd = NSMaxRange(self.restyle(line))
+            }
         }
     }
 
@@ -1008,6 +1099,7 @@ final class EditorController: NSObject, NSTextViewDelegate, NSTextStorageDelegat
 
     @objc private func frameDidChange(_ notification: Notification) {
         updateInsets()
+        scheduleTableRelayout()
     }
 
     func topVisibleLine() -> Double? {

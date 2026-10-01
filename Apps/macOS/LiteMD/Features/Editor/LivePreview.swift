@@ -1,7 +1,7 @@
 import AppKit
 import LiteMDMarkdown
 
-/// 实时预览中整行的装饰：代码块底色、引用竖线、分隔线、图片。
+/// 实时预览中整行的装饰：代码块底色、引用竖线、分隔线、图片、表格。
 /// 作为文本属性挂在行上，由 `LiveLayoutFragment` 绘制；正文字符本身不变。
 final class LiveDecoration: NSObject, @unchecked Sendable {
     enum Kind {
@@ -9,16 +9,27 @@ final class LiveDecoration: NSObject, @unchecked Sendable {
         case quote
         case rule
         case image
+        case tableHeader
+        case tableRow
+        /// `| --- |` 分隔行，已隐藏并压成 1pt 高。
+        case tableDelimiter
+        /// 放不下的表格整张画在第一行上，单元格内换行。
+        case tableBlock
     }
 
     let kind: Kind
     let image: NSImage?
     let imageSize: CGSize
+    /// 表格各列的边界（相对文本区域左侧），第一个为 0，最后一个为表格总宽。
+    let columnEdges: [CGFloat]
+    let tableBlock: LiveTableBlock?
 
-    init(kind: Kind, image: NSImage? = nil, imageSize: CGSize = .zero) {
+    init(kind: Kind, image: NSImage? = nil, imageSize: CGSize = .zero, columnEdges: [CGFloat] = [], tableBlock: LiveTableBlock? = nil) {
         self.kind = kind
         self.image = image
         self.imageSize = imageSize
+        self.columnEdges = columnEdges
+        self.tableBlock = tableBlock
     }
 }
 
@@ -65,6 +76,13 @@ final class LiveLayoutFragment: NSTextLayoutFragment {
         CGRect(x: contentRect.minX, y: textMaxY + Space.s2, width: decoration.imageSize.width, height: decoration.imageSize.height)
     }
 
+    private var tableRect: CGRect {
+        if let block = decoration.tableBlock {
+            return CGRect(origin: CGPoint(x: contentRect.minX, y: 0), size: block.size)
+        }
+        return CGRect(x: contentRect.minX, y: 0, width: decoration.columnEdges.last ?? 0, height: layoutFragmentFrame.height)
+    }
+
     override var renderingSurfaceBounds: CGRect {
         var bounds = super.renderingSurfaceBounds
         switch decoration.kind {
@@ -72,6 +90,8 @@ final class LiveLayoutFragment: NSTextLayoutFragment {
             bounds = bounds.union(imageRect)
         case .codeBlock, .rule, .quote:
             bounds = bounds.union(contentRect.insetBy(dx: -Space.s2, dy: 0))
+        case .tableHeader, .tableRow, .tableDelimiter, .tableBlock:
+            bounds = bounds.union(tableRect)
         }
         return bounds
     }
@@ -103,6 +123,49 @@ final class LiveLayoutFragment: NSTextLayoutFragment {
                 path.addClip()
                 image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue])
             }
+        case .tableHeader, .tableRow, .tableDelimiter:
+            drawTable(in: tableRect.offsetBy(dx: point.x, dy: point.y), at: point, in: context)
+        case .tableBlock:
+            if let block = decoration.tableBlock {
+                drawTableBlock(block, in: tableRect.offsetBy(dx: point.x, dy: point.y))
+            }
+        }
+    }
+
+    /// 正文已全部隐藏，这里画出单元格文字、表头底色和所有表格线。
+    private func drawTableBlock(_ block: LiveTableBlock, in table: CGRect) {
+        if block.rowEdges.count > 1 {
+            Palette.surfaceMuted.setFill()
+            CGRect(x: table.minX, y: table.minY, width: table.width, height: block.rowEdges[1]).fill()
+        }
+        for cell in block.cells {
+            cell.text.draw(with: cell.frame.offsetBy(dx: table.minX, dy: table.minY), options: [.usesLineFragmentOrigin, .usesFontLeading])
+        }
+        Palette.border.setFill()
+        for edge in block.rowEdges {
+            CGRect(x: table.minX, y: table.minY + min(edge, table.height - 1), width: table.width, height: 1).fill()
+        }
+        for edge in block.columnEdges {
+            CGRect(x: table.minX + min(edge, table.width - 1), y: table.minY, width: 1, height: table.height).fill()
+        }
+    }
+
+    /// 每行画自己的底边和各列竖线；表头另画顶边并铺底色。分隔行只画竖线。
+    private func drawTable(in table: CGRect, at point: CGPoint, in context: CGContext) {
+        if decoration.kind == .tableHeader {
+            Palette.surfaceMuted.setFill()
+            table.fill()
+        }
+        super.draw(at: point, in: context)
+        Palette.border.setFill()
+        if decoration.kind == .tableHeader {
+            CGRect(x: table.minX, y: table.minY, width: table.width, height: 1).fill()
+        }
+        if decoration.kind != .tableDelimiter {
+            CGRect(x: table.minX, y: table.maxY - 1, width: table.width, height: 1).fill()
+        }
+        for edge in decoration.columnEdges {
+            CGRect(x: table.minX + min(edge, table.width - 1), y: table.minY, width: 1, height: table.height).fill()
         }
     }
 }
