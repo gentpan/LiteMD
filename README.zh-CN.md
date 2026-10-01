@@ -6,7 +6,7 @@
 
 [litemd.app](https://litemd.app) · [English](README.md)
 
-[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.4-2563EB)](https://litemd.app)
+[![下载](https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD-0.1.5-2563EB)](https://litemd.app)
 [![系统](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![架构](https://img.shields.io/badge/%E9%80%9A%E7%94%A8%E4%BA%8C%E8%BF%9B%E5%88%B6-universal-111827)](https://litemd.app)
 [![许可证](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)
@@ -16,7 +16,7 @@
 </div>
 
 LiteMD 边写边渲染，自带 20 套配色，导入导出都内置，不需要你先去装别的工具。
-用 Swift 和 AppKit 写成——没有 Electron，不捆绑 Python 运行时，整个应用 18 MB。
+用 Swift 和 AppKit 写成——没有 Electron，不捆绑 Python 运行时，整个应用 19 MB。
 
 文件始终是你文件夹里的普通 `.md`。没有专有格式，没有数据库，想走随时可以拿走。
 
@@ -40,7 +40,8 @@ KaTeX 公式、代码高亮（highlight.js）和 Mermaid 图表随应用打包�
 `[[Wiki 链接]]`、大纲、全文搜索和命令面板都在手边。
 
 **版本历史与备份。** 本地保留历史版本，写错了随时翻回去。备份指向你自己的 S3 兼容存储，
-访问凭据存在系统钥匙串里，不经过任何中间服务。
+访问凭据存在系统钥匙串里，不经过任何中间服务。用同一个账号还能浏览 S3 或 R2 存储桶里的所有
+Markdown 文档：下载到本地编辑，改完再决定要不要上传覆盖；期间别人改过的话，上传前会先提醒你。
 
 **格式转换内置。**
 

@@ -1,0 +1,4 @@
+{
+  "zh-Hans": "· 新功能：浏览 S3 文档。列出 S3 或 R2 存储桶里的所有 Markdown，下载到本地编辑，改完可以上传覆盖，也可以只留在本地；S3 上的版本在下载之后被改过时，上传前会先提醒（文件 → 浏览 S3 文档…）\n· 修复：文档以表格结尾时，实时预览中表格最后一行显示偏高",
+  "en": "· New: Browse S3 Documents. List every Markdown file in an S3 or R2 bucket, download one to edit, then upload it to replace the S3 copy or keep it local. If the S3 copy changed after you downloaded it, LiteMD asks before uploading (File → Browse S3 Documents…).\n· Fixed: in Live Preview, the last row of a table at the end of a document was too tall."
+}

@@ -6,7 +6,7 @@
 
 [litemd.app](https://litemd.app) · [中文说明](README.zh-CN.md)
 
-[![Download](https://img.shields.io/badge/download-0.1.4-2563EB)](https://litemd.app)
+[![Download](https://img.shields.io/badge/download-0.1.5-2563EB)](https://litemd.app)
 [![Platform](https://img.shields.io/badge/macOS-15%2B-111827)](https://litemd.app)
 [![Universal](https://img.shields.io/badge/binary-universal-111827)](https://litemd.app)
 [![License](https://img.shields.io/badge/license-MIT-12853C)](LICENSE)
@@ -18,7 +18,7 @@
 LiteMD renders as you write, ships with 20 color themes, and converts other
 document formats in and out of Markdown without asking you to install anything
 else. It is written in Swift and AppKit — no Electron, no bundled Python
-runtime, 18 MB installed.
+runtime, 19 MB installed.
 
 Your files stay as plain `.md` in a folder you choose. No proprietary format,
 no database, nothing to export when you want to leave.
@@ -50,7 +50,9 @@ a command palette.
 
 **History and backup.** Earlier versions are kept locally so you can always go
 back. Backup points at your own S3-compatible storage, with credentials in the
-system keychain and nothing in between.
+system keychain and nothing in between. The same account lets you browse every
+Markdown file in an S3 or R2 bucket: download one to edit, then upload it back
+when you are ready — LiteMD warns you first if someone changed it in the meantime.
 
 **Conversion, built in.**
 
